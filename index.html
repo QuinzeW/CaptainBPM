@@ -61,7 +61,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.18</p>
+  <p>v0.2</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -105,6 +105,8 @@
     let metronomeStarted = false;// Evite de lancer le métronome plusiurs fois
     let masterGainNode = null;   // Mute btn
     let muted = false;           // Event mute
+    let muteBeatsRemaining = 0;  // compte combien de battements restent muets
+    let tapLock = false;         // évite qu’un effet visuel ou un double clic perturbe le traitement du tap
 
     // ============================================================
     // OUTILS
@@ -205,10 +207,16 @@
     // ============================================================
     // Le dernier clic devient le nouveau point de départ.
     function tapSynchro() {
-      const now = nowMs();
+      const now = performance.now();
+
+      // Priorité absolue : on traite le tap immédiatement.
       tapOriginMs = now;
       nextBeatAtMs = tapOriginMs;
-      setMessage("Tap synchro enregistré. Nouvelle origine appliquée.");
+
+      // On coupe le son pour les 2 prochains beats.
+      muteBeatsRemaining = 2;
+
+      setMessage("Tap synchro enregistré. Son muet pendant 2 battements.");
 
       if (running) {
         clearTimeout(beatTimerId);
@@ -245,23 +253,40 @@
       const delay = Math.max(0, nextBeatAtMs - now);
 
       beatTimerId = setTimeout(() => {
-        const accent = (Math.round(nextBeatAtMs / intervalMs) % 4) === 0;
+        const isMutedByTap = muteBeatsRemaining > 0;
 
-        // Déclenchement local du son et de l'animation.
-        playClick(accent);
-        pulseVisual(accent);
-
-        // Prépare le beat suivant.
-        nextBeatAtMs += intervalMs;
-
-        // Si le timing a trop dérivé, on resynchronise proprement.
-        const realNow = nowMs();
-        if (nextBeatAtMs < realNow - intervalMs) {
-          nextBeatAtMs = computeNextBeatTime(realNow);
+        if (!isMutedByTap) {
+          playClick(accent);
         }
 
+        pulseVisual(accent);
+
+        if (muteBeatsRemaining > 0) {
+          muteBeatsRemaining -= 1;
+        }
+
+        nextBeatAtMs += intervalMs;
         scheduleNextBeat();
       }, delay);
+
+      // beatTimerId = setTimeout(() => {
+      //   const accent = (Math.round(nextBeatAtMs / intervalMs) % 4) === 0;
+
+      //   // Déclenchement local du son et de l'animation.
+      //   playClick(accent);
+      //   pulseVisual(accent);
+
+      //   // Prépare le beat suivant.
+      //   nextBeatAtMs += intervalMs;
+
+      //   // Si le timing a trop dérivé, on resynchronise proprement.
+      //   const realNow = nowMs();
+      //   if (nextBeatAtMs < realNow - intervalMs) {
+      //     nextBeatAtMs = computeNextBeatTime(realNow);
+      //   }
+
+      //   scheduleNextBeat();
+      // }, delay);
     }
 
     function rescheduleAfterBpmChange() {
