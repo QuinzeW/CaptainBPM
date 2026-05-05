@@ -61,7 +61,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.21</p>
+  <p>v0.22</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -253,11 +253,12 @@
       const delay = Math.max(0, nextBeatAtMs - now);
 
       beatTimerId = setTimeout(() => {
+        const accent = (Math.round(nextBeatAtMs / intervalMs) % 4) === 0;
         const isMutedByTap = muteBeatsRemaining > 0;
 
         // Déclenchement local du son et de l'animation.
-        playClick(accent);
-        pulseVisual(accent);
+        // playClick(accent);
+        // pulseVisual(accent);
 
         if (!isMutedByTap) {
           playClick(accent);
@@ -274,11 +275,7 @@
       }, delay);
 
       // beatTimerId = setTimeout(() => {
-      //   const accent = (Math.round(nextBeatAtMs / intervalMs) % 4) === 0;
-
-      //   // Déclenchement local du son et de l'animation.
-      //   playClick(accent);
-      //   pulseVisual(accent);
+      //   
 
       //   // Prépare le beat suivant.
       //   nextBeatAtMs += intervalMs;
