@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CaptainBPM</title>
   <style>
-    body {
+    :root {
+      --accent: #921272;
+    body {rgb(198, 56, 217)rgb(138, 50, 150)rgb(150, 50, 111)rgb(158, 45, 115)
       font-family: Arial, sans-serif;
       padding: 20px;
       max-width: 520px;
@@ -23,6 +25,14 @@
       padding: 16px;
       margin-top: 16px;
     }
+    .beat {
+      width: 120px;
+      height: 120px;
+      border-radius: 999px;
+      background: #346ac7;
+      margin: 8px auto 0;
+      transition: transform 90ms ease, background-color 90ms ease;
+    }
     #bpm {
       font-size: 3rem;
       font-weight: bold;
@@ -36,19 +46,19 @@
       margin-top: 10px;
       color: #666;
     }
-    #beatSignal {
+    /* #beatSignal {
       width: 120px;
       height: 120px;
       margin: 20px auto 0;
       border-radius: 999px;
       background: #e2effc;
       transition: transform 40ms ease, background 80ms ease, box-shadow 120ms ease;
-    }
+    } */
   </style>
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.12</p>
+  <p>v0.13</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -59,7 +69,7 @@
     <div id="offsetInfo">Offset 0 ms</div>
   </div>
 
-  <div id="beatSignal"></div>
+  <div id="beat"></div>
 
   <button id="tapSyncBtn" class="primary">Tap synchro</button>
 
