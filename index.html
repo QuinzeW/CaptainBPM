@@ -46,19 +46,12 @@
       margin-top: 10px;
       color: #666;
     }
-    /* #beatSignal {
-      width: 120px;
-      height: 120px;
-      margin: 20px auto 0;
-      border-radius: 999px;
-      background: #e2effc;
-      transition: transform 40ms ease, background 80ms ease, box-shadow 120ms ease;
-    } */
+
   </style>
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.13</p>
+  <p>v0.14</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -73,6 +66,8 @@
 
   <button id="tapSyncBtn" class="primary">Tap synchro</button>
 
+  <button id="muteBtn">Mute</button>
+
   <script>
     const SERVICE_UUID = '12345678-1234-1234-1234-1234567890ab';
     const BPM_CHAR_UUID = '12345678-1234-1234-1234-1234567890ac';
@@ -84,6 +79,8 @@
 
     const tapSyncBtn = document.getElementById("tapSyncBtn");
     const connectBtn = document.getElementById("connectBtn")
+    const muteBtn = document.getElementById("muteBtn");
+    muteBtn.addEventListener("click", toggleMute);
 
     // ============================================================
     // ÉTAT DU MÉTRONOME
@@ -97,6 +94,8 @@
     let audioCtx = null;         // Contexte audio Web Audio.
     let device = null;           // Appareil BLE connecté.
     let metronomeStarted = false;// Evite de lancer le métronome plusiurs fois
+    let masterGainNode = null;   // Mute btn
+    let muted = false;           // Event mute
 
     // ============================================================
     // OUTILS
@@ -131,6 +130,13 @@
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
+
+      if (!masterGainNode) {
+        masterGainNode = audioCtx.createGain();
+        masterGainNode.gain.value = muted ? 0 : 1;
+        masterGainNode.connect(audioCtx.destination);
+      }
+
       if (audioCtx.state === "suspended") {
         audioCtx.resume();
       }
@@ -151,10 +157,21 @@
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
 
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
+      gain.connect(masterGainNode);
 
       osc.start(t);
       osc.stop(t + 0.05);
+    }
+
+    function toggleMute() {
+      muted = !muted;
+
+      if (masterGainNode && audioCtx) {
+        masterGainNode.gain.setValueAtTime(muted ? 0 : 1, audioCtx.currentTime);
+      }
+
+      muteBtn.textContent = muted ? "Unmute" : "Mute";
+      setMessage(muted ? "Son coupé." : "Son réactivé.");
     }
 
     function pulseVisual(accent = false) {
