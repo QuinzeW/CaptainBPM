@@ -48,7 +48,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.1</p>
+  <p>v0.11</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -108,7 +108,7 @@
     }
 
     // ============================================================
-    // AUDIO
+    // AUDIO+PULSE
     // ============================================================
     function ensureAudioContext() {
       if (!audioCtx) {
@@ -281,6 +281,35 @@
         setMessage("Erreur BLE : " + err.message);
       }
     }
+
+    // ============================================================
+    // START / STOP
+    // ============================================================
+    function startMetronome() {
+      ensureAudioContext();
+      recomputeInterval();
+      running = true;
+      statusEl.textContent = "En lecture";
+      setMessage("Métronome démarré.");
+
+      // Si aucun tap n'a encore eu lieu, on prend l'instant courant comme origine.
+      if (tapOriginMs === null) {
+        tapOriginMs = nowMs();
+      }
+
+      nextBeatAtMs = computeNextBeatTime(nowMs());
+      scheduleNextBeat();
+      updateUI();
+    }
+
+    // function stopMetronome() {
+    //   running = false;
+    //   clearTimeout(beatTimerId);
+    //   beatTimerId = null;
+    //   statusEl.textContent = "Arrêté";
+    //   setMessage("Métronome arrêté.");
+    //   updateUI();
+    // }
 
     // ============================================================
     // ÉVÉNEMENTS
