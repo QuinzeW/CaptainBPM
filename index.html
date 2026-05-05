@@ -61,7 +61,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.16</p>
+  <p>v0.17</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -185,9 +185,20 @@
     }
 
     function pulseVisual() {
+      // Retire la classe pour pouvoir relancer l'animation même si le beat précédent a été très proche.
       beatEl.classList.remove("pulsing");
+
+      // Force un reflow pour que le navigateur "voie" la suppression et rejoue l'animation au prochain ajout de classe.
       void beatEl.offsetWidth;
+
+      // Relance l'animation CSS.
       beatEl.classList.add("pulsing");
+
+      // Nettoyage après l'animation.
+      setTimeout(() => {
+        beatEl.classList.remove("pulsing");
+      }, 180);
+      console.log("pulse");
     }
 
     // ============================================================
