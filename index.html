@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CaptainBPM</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 520px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    button {
+      font-size: 1rem;
+      padding: 12px 16px;
+      margin: 12px 0;
+    }
+    .card {
+      background: #f5f5f5;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+    #bpm {
+      font-size: 3rem;
+      font-weight: bold;
+      margin: 8px 0 0;
+    }
+    #status {
+      margin-top: 12px;
+      color: #444;
+    }
+    #phaseInfo {
+      margin-top: 10px;
+      color: #666;
+    }
+    #beatSignal {
+      width: 120px;
+      height: 120px;
+      margin: 20px auto 0;
+      border-radius: 999px;
+      background: #e2effc;
+      transition: transform 40ms ease, background 80ms ease, box-shadow 120ms ease;
+    }
+  </style>
+</head>
+<body>
+  <h1>CaptainBPM</h1>
+  <p>v0.9228c</p>
+  <button id="connectBtn">Connexion</button>
+
+  <div class="card">
+    <div>BPM</div>
+    <div id="bpmValue">---</div>
+    <div id="status">Non connecté</div>
+    <div id="message">Prêt</div>
+    <div id="offsetInfo">Offset 0 ms</div>
+  </div>
+
+  <div id="beatSignal"></div>
+
+  <button id="tapSyncBtn" class="primary">Tap synchro</button>
+
+  <script>
+    const SERVICE_UUID = '12345678-1234-1234-1234-1234567890ab';
+    const BPM_CHAR_UUID = '12345678-1234-1234-1234-1234567890ac';
+
+    const bpmValue = document.getElementById("bpmValue");
+    const statusEl = document.getElementById("status");
+    const messageEl = document.getElementById("message");
+    const beatEl = document.getElementById("beat");
+
+    const tapSyncBtn = document.getElementById("tapSyncBtn");
+    const connectBtn = document.getElementById("connectBtn")
+
+    // ============================================================
+    // ÉTAT DU MÉTRONOME
+    // ============================================================
+    let bpm = 120;               // BPM reçu de l'ESP32.
+    let intervalMs = 500;        // Période actuelle entre deux beats.
+    let running = false;         // Métronome actif ou non.
+    let nextBeatAtMs = 0;        // Prochain beat planifié.
+    let tapOriginMs = null;      // Dernier tap = nouvelle origine de phase.
+    let beatTimerId = null;      // Timer du scheduler.
+    let audioCtx = null;         // Contexte audio Web Audio.
+    let device = null;           // Appareil BLE connecté.
+
+    // ============================================================
+    // OUTILS
+    // ============================================================
+    function nowMs() {
+      return performance.now();
+    }
+
+    function recomputeInterval() {
+      intervalMs = 60000 / bpm;
+    }
+
+    function setMessage(text) {
+      messageEl.textContent = text;
+    }
+
+    function updateUI() {
+      bpmValue.textContent = Math.round(bpm);
+      statusEl.textContent = running ? "En lecture" : "Prêt";
+    }
+
+    // ============================================================
+    // AUDIO
+    // ============================================================
+    function ensureAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume();
+      }
+    }
+
+    function playClick(accent = false) {
+      ensureAudioContext();
+
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = "square";
+      osc.frequency.value = accent ? 1200 : 850;
+
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(accent ? 0.8 : 0.55, t + 0.001);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.05);
+    }
+
+    function pulseVisual(accent = false) {
+      beatEl.style.transform = accent ? "scale(1.14)" : "scale(1.08)";
+      beatEl.style.backgroundColor = accent ? "#38d996" : "#5aa9ff";
+
+      setTimeout(() => {
+        beatEl.style.transform = "scale(1)";
+        beatEl.style.backgroundColor = "#202733";
+      }, 90);
+    }
+
+    // ============================================================
+    // TAP SYNCHRO
+    // ============================================================
+    // Le dernier clic devient le nouveau point de départ.
+    function tapSynchro() {
+      const now = nowMs();
+      tapOriginMs = now;
+      nextBeatAtMs = tapOriginMs;
+      setMessage("Tap synchro enregistré. Nouvelle origine appliquée.");
+
+      if (running) {
+        clearTimeout(beatTimerId);
+        scheduleNextBeat();
+      }
+    }
+
+    // ============================================================
+    // CALCUL DU PROCHAIN BEAT
+    // ============================================================
+    function computeNextBeatTime(referenceNowMs) {
+      if (tapOriginMs === null) {
+        return referenceNowMs;
+      }
+
+      const elapsed = referenceNowMs - tapOriginMs;
+      const beatsSinceTap = Math.floor(elapsed / intervalMs);
+      return tapOriginMs + (beatsSinceTap + 1) * intervalMs;
+    }
+
+    function scheduleNextBeat() {
+      clearTimeout(beatTimerId);
+
+      if (!running) return;
+
+      const now = nowMs();
+
+      // Si aucun beat n'est planifié ou si on a dépassé le temps prévu,
+      // on recalcule à partir du dernier tap.
+      if (!nextBeatAtMs || nextBeatAtMs <= now) {
+        nextBeatAtMs = computeNextBeatTime(now);
+      }
+
+      const delay = Math.max(0, nextBeatAtMs - now);
+
+      beatTimerId = setTimeout(() => {
+        const accent = (Math.round(nextBeatAtMs / intervalMs) % 4) === 0;
+
+        // Déclenchement local du son et de l'animation.
+        playClick(accent);
+        pulseVisual(accent);
+
+        // Prépare le beat suivant.
+        nextBeatAtMs += intervalMs;
+
+        // Si le timing a trop dérivé, on resynchronise proprement.
+        const realNow = nowMs();
+        if (nextBeatAtMs < realNow - intervalMs) {
+          nextBeatAtMs = computeNextBeatTime(realNow);
+        }
+
+        scheduleNextBeat();
+      }, delay);
+    }
+
+    function rescheduleAfterBpmChange() {
+      if (!running) return;
+      nextBeatAtMs = computeNextBeatTime(nowMs());
+      scheduleNextBeat();
+    }
+
+    // ============================================================
+    // BPM
+    // ============================================================
+    function setBpm(newBpm) {
+      const parsed = Number(newBpm);
+      if (!Number.isFinite(parsed) || parsed <= 0) return;
+
+      bpm = parsed;
+      recomputeInterval();
+      updateUI();
+      rescheduleAfterBpmChange();
+    }
+
+    // ============================================================
+    // BLE
+    // ============================================================
+    async function connectBle() {
+      try {
+        statusEl.textContent = 'Sélection du boîtier...';
+
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ services: [SERVICE_UUID] }],
+          optionalServices: [SERVICE_UUID]
+        });
+
+        statusEl.textContent = `Connexion à ${device.name || 'boîtier BLE'}...`;
+
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        const bpmChar = await service.getCharacteristic(BPM_CHAR_UUID);
+
+        const initialValue = await bpmChar.readValue();
+        const decoded = new TextDecoder().decode(initialValue.buffer).trim();
+        setBpm(parseInt(decoded, 10) || 120);
+
+        await bpmChar.startNotifications();
+        bpmChar.addEventListener("characteristicvaluechanged", event => {
+          const text = new TextDecoder().decode(event.target.value.buffer).trim();
+          const incomingBpm = parseInt(text, 10);
+
+          if (Number.isFinite(incomingBpm) && incomingBpm > 0) {
+            setBpm(incomingBpm);
+            setMessage(`BPM mis à jour : ${incomingBpm}`);
+          }
+        });
+
+        device.addEventListener("gattserverdisconnected", () => {
+          running = false;
+          clearTimeout(beatTimerId);
+          beatTimerId = null;
+          statusEl.textContent = "Déconnecté";
+          setMessage("ESP32 déconnecté.");
+        });
+
+        setMessage("Connexion établie. BPM reçu.");
+        statusEl.textContent = "Connecté";
+      } catch (err) {
+        console.error(err);
+        setMessage("Erreur BLE : " + err.message);
+      }
+    }
+
+    // ============================================================
+    // ÉVÉNEMENTS
+    // ============================================================
+    tapSyncBtn.addEventListener("click", tapSynchro);
+    connectBtn.addEventListener("click", connectBle);
+
+    // ============================================================
+    // INIT
+    // ============================================================
+    recomputeInterval();
+    updateUI();
+  </script>
+</body>
+</html>
