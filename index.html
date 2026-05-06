@@ -61,7 +61,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.32</p>
+  <p>v0.33</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -133,7 +133,7 @@
     }
 
     function updateUI() {
-      bpmValue.textContent = Math.round(bpm);
+      bpmValue.textContent = Math.round(bpm); // Met à jour <div id="bpmValue">
       statusEl.textContent = running ? "En lecture" : "Prêt";
     }
 
@@ -329,15 +329,26 @@
       setMessage("Métronome arrêté.");
       updateUI();
     }
-    // function setBpm(newBpm) {
-    //   const parsed = Number(newBpm);
-    //   if (!Number.isFinite(parsed) || parsed <= 0) return;
-
-    //   bpm = parsed;
-    //   recomputeInterval();
-    //   updateUI();
-    //   rescheduleAfterBpmChange();
-    // }
+    // SYNCHRO
+    function syncFromMasterPosition(masterPositionMs) {
+      const now = nowMs();
+      
+      // L'ESP32 nous dit où il en est dans son cycle de 4 beats
+      // On cale notre prochain beat exactement dessus
+      const cycleLength = intervalMs * 4;
+      const offsetToNextBeat = (cycleLength - masterPositionMs) % cycleLength;
+      
+      tapOriginMs = now - masterPositionMs;  // On recale notre origine
+      nextBeatAtMs = now + offsetToNextBeat;
+      
+      if (running) {
+        clearTimeout(beatTimerId);
+        scheduleNextBeat();
+      }
+      
+      // Debug dans la console
+      console.log(`Sync: master@ ${masterPositionMs}ms → next@ +${Math.round(offsetToNextBeat)}ms`);
+    }
 
     // ============================================================
     // BLE
@@ -372,9 +383,21 @@
           const incomingBpm = parseInt(text, 10);
           if (Number.isFinite(incomingBpm) && incomingBpm > 0) {
             bpm = incomingBpm;
-            setMessage("BPM mis à jour: " + incomingBpm);
+            setMessage("BPM mis à jour: " + incomingBpm);  // Message de confirmation
             recomputeInterval();
-            rescheduleAfterBpmChange();
+            rescheduleAfterBpmChange();  // Recalage métronome
+            updateUI();  // MET À JOUR #bpmValue immédiatement
+          }
+        });
+
+        const positionChar = await service.getCharacteristic(POSITION_CHAR_UUID);
+        positionChar.startNotifications();
+        positionChar.addEventListener("characteristicvaluechanged", event => {
+          const text = new TextDecoder().decode(event.target.value.buffer).trim();
+          const positionInCycle = parseInt(text, 10);
+          
+          if (Number.isFinite(positionInCycle)) {
+            syncFromMasterPosition(positionInCycle);
           }
         });
 

@@ -6,6 +6,7 @@
 #define BPM_CHAR_UUID  "12345678-1234-1234-1234-1234567890ac"
 #define BEAT_CHAR_UUID  "12345678-1234-1234-1234-1234567890ad"
 #define START_CHAR_UUID   "12345678-1234-1234-1234-1234567890ae"
+#define POSITION_CHAR_UUID "12345678-1234-1234-1234-1234567890af"
 
 #define NIMBLE_MAX_CONNECTIONS 6 
 
@@ -20,6 +21,7 @@ Adafruit_NeoPixel pixels(NEOPIXEL_COUNT, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 NimBLECharacteristic* bpmChar = nullptr;
 NimBLECharacteristic* beatChar = nullptr;
 NimBLECharacteristic* startChar = nullptr;
+NimBLECharacteristic* positionChar = nullptr;  // globale
 NimBLEServer* pServer = nullptr;
 
 volatile bool deviceConnected = false;
@@ -175,6 +177,13 @@ void setupBle() {
   );
   startChar->setValue("0");
 
+  positionChar = service->createCharacteristic(
+      POSITION_CHAR_UUID,
+      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+   );
+   positionChar->setValue("0");
+   positionChar->addDescriptor(new NimBLE2904());
+
   service->start();
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
@@ -183,7 +192,6 @@ void setupBle() {
   adv->start();
   Serial.println("BLE advertising started");
 }
-
 
 void setup() {
   Serial.begin(115200);
@@ -199,6 +207,18 @@ void setup() {
 
   // On démarre une session dès le boot
   startSession();
+}
+
+void sendPosition() {
+    if (!running) return;
+    
+    uint32_t sessionTimeMs = millis() - sessionStartMs;
+    uint32_t intervalMs = 60000UL / bpm;
+    uint32_t positionInCycle = sessionTimeMs % (intervalMs * 4);  // Position dans 4 beats
+    
+    String s = String(positionInCycle);
+    positionChar->setValue(s.c_str());
+    positionChar->notify();
 }
 
 void loop() {
@@ -224,6 +244,12 @@ void loop() {
         if (running) {
             startSession();
         }
+    }
+    // Envoi position toutes les 100ms aux clients
+    static uint32_t lastPositionSend = 0;
+    if (now - lastPositionSend >= 100) {
+        sendPosition();
+        lastPositionSend = now;
     }
 
     updateMetronome(now);
