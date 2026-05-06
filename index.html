@@ -58,7 +58,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.35</p>
+  <p>v0.355</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -114,6 +114,7 @@
     let metronomeStarted = false;// Evite de lancer le métronome plusiurs fois
     let muteBeatsRemaining = 0;  // compte combien de battements restent muets
     let tapLock = false;         // évite qu’un effet visuel ou un double clic perturbe le traitement du tap
+    let lastBeatTime = 0;
 
     // ============================================================
     // OUTILS
@@ -264,14 +265,26 @@
     }
 
     function scheduleNextBeat() {
-      clearTimeout(beatTimerId);
       if (!running) return;
 
       const now = nowMs();
-      // Toujours calculer depuis tapOriginMs (stable
-      if (!nextBeatAtMs < now) {
-       nextBeatAtMs = computeNextBeatTime(now);
-      }
+      const targetTime = lastBeatTime + intervalMs;
+      const delay = Math.max(0, targetTime - now);
+
+      requestAnimationFrame(() => {
+        const actualTime = nowMs();
+        
+        // Joue TOUJOURS le beat, même en retard
+        if (actualTime >= targetTime - 5) {  // Tolérance 5ms
+          playClick((Math.round(lastBeatTime / intervalMs) % 4) === 0);
+          pulseVisual();
+          
+          lastBeatTime = actualTime;  // Timestamp réel du beat joué
+        }
+        
+        scheduleNextBeat();  // Chaînage continu
+      });
+    }
 
   const delay = Math.max(1, nextBeatAtMs - now);  // Au moins 1ms
 
@@ -376,23 +389,17 @@
 
         bpmChar.startNotifications();
         bpmChar.addEventListener("characteristicvaluechanged", event => {
-          const text = new TextDecoder().decode(event.target.value.buffer).trim();
-          const incomingBpm = parseInt(text, 10);
-          if (Number.isFinite(incomingBpm) && incomingBpm > 0) {
-            bpm = incomingBpm;
-            recomputeInterval();
-            
-            // ✅ NOUVELLE ORIGINE basée sur beat actuel du master
-            const now = nowMs();
-            tapOriginMs = now - (now % intervalMs);  // Arrondi au dernier beat complet
-            
-            clearTimeout(beatTimerId);
-            nextBeatAtMs = computeNextBeatTime(now);
-            scheduleNextBeat();
-            
-            updateUI();
-            setMessage(`BPM → ${bpm} (resync)`);
-          }
+        const incomingBpm = parseInt(new TextDecoder().decode(event.target.value.buffer).trim(), 10);
+        if (Number.isFinite(incomingBpm) && incomingBpm > 0) {
+          bpm = incomingBpm;
+          recomputeInterval();
+          
+          // ✅ RESET COMPLET du timing
+          lastBeatTime = nowMs();
+          
+          updateUI();
+          setMessage(`BPM=${bpm} RESET`);
+        }
         });
 
         const beatChar = await service.getCharacteristic(BEAT_CHAR_UUID);

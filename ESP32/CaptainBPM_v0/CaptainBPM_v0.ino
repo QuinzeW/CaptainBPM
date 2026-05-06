@@ -1,5 +1,9 @@
 #include <Arduino.h>
-#include <NimBLEDevice.h>
+// #include <NimBLEDevice.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 #include <Adafruit_NeoPixel.h>
 
 #define SERVICE_UUID   "12345678-1234-1234-1234-1234567890ab"
@@ -18,11 +22,16 @@
 Adafruit_NeoPixel pixels(NEOPIXEL_COUNT, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 // Caractéristiques BLE globales
-NimBLECharacteristic* bpmChar = nullptr;
-NimBLECharacteristic* beatChar = nullptr;
-NimBLECharacteristic* startChar = nullptr;
-NimBLECharacteristic* positionChar = nullptr;  // globale
-NimBLEServer* pServer = nullptr;
+// NimBLECharacteristic* bpmChar = nullptr;
+// NimBLECharacteristic* beatChar = nullptr;
+// NimBLECharacteristic* startChar = nullptr;
+// NimBLECharacteristic* positionChar = nullptr;  // globale
+// NimBLEServer* pServer = nullptr;
+BLEServer *pServer = NULL;
+BLECharacteristic *pBpmChar;
+BLECharacteristic *pBeatChar;
+BLECharacteristic *pStartChar;
+bool deviceConnected = false;
 
 volatile bool deviceConnected = false;
 
@@ -46,34 +55,42 @@ uint32_t lastBtnDownChangeMs= 0;
 const uint32_t debounceMs   = 40;
 
 // Callbacks serveur BLE
-class ServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* server, NimBLEConnInfo& connInfo) override {
-    deviceConnected = true;
-    Serial.println("Client connected");
-    NimBLEDevice::startAdvertising();
-  }
+// class ServerCallbacks : public NimBLEServerCallbacks {
+//   void onConnect(NimBLEServer* server, NimBLEConnInfo& connInfo) override {
+//     deviceConnected = true;
+//     Serial.println("Client connected");
+//     NimBLEDevice::startAdvertising();
+//   }
 
-  void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
-    deviceConnected = false;
-    Serial.printf("Client disconnected, reason=%d\n", reason);
-    delay(500);
-    NimBLEDevice::startAdvertising();
-    Serial.println("Advertising restarted after disconnect");
-  }
+//   void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
+//     deviceConnected = false;
+//     Serial.printf("Client disconnected, reason=%d\n", reason);
+//     delay(500);
+//     NimBLEDevice::startAdvertising();
+//     Serial.println("Advertising restarted after disconnect");
+//   }
+// };
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+    };
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      delay(500);
+      pServer->startAdvertising();
+    }
 };
 
 // Envoi des caractéristiques BLE
 void sendBPM() {
-  String s = String(bpm);
-  bpmChar->setValue(s.c_str());
-  bpmChar->notify();
-  Serial.printf("BPM=%d\n", bpm);
+  pBpmChar->setValue(String(bpm).c_str());
+  pBpmChar->notify();
 }
 
 void notifyBeat() {
-  String s = String(beatCount);
-  beatChar->setValue(s.c_str());
-  beatChar->notify();
+  pBeatChar->setValue(String(beatCount).c_str());
+  pBeatChar->notify();
 }
 
 void notifyStartTime() {
@@ -152,52 +169,88 @@ void setupButtons() {
 }
 
 // Setup BLE
+// void setupBle() {
+//   NimBLEDevice::init("CaptainBPM");
+//   pServer = NimBLEDevice::createServer();
+//   pServer->setCallbacks(new ServerCallbacks());
+
+//   NimBLEService* service = pServer->createService(SERVICE_UUID);
+
+//   bpmChar = service->createCharacteristic(
+//       BPM_CHAR_UUID,
+//       NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+//   );
+//   bpmChar->setValue(String(bpm).c_str());
+
+//   beatChar = service->createCharacteristic(
+//       BEAT_CHAR_UUID,
+//       NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+//   );
+//   beatChar->setValue("0");
+
+//   startChar = service->createCharacteristic(
+//       START_CHAR_UUID,
+//       NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+//   );
+//   startChar->setValue("0");
+
+//   positionChar = service->createCharacteristic(
+//       POSITION_CHAR_UUID,
+//       NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+//    );
+//    positionChar->setValue("0");
+//    positionChar->addDescriptor(new NimBLE2904());
+
+//   service->start();
+
+//   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+//   adv->addServiceUUID(SERVICE_UUID);
+//   //adv->setScanResponse(true);
+//   adv->start();
+//   Serial.println("BLE advertising started");
+// }
 void setupBle() {
-  NimBLEDevice::init("CaptainBPM");
-  pServer = NimBLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
+    BLEDevice::init("CaptainBPM");
+    
+    pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
 
-  NimBLEService* service = pServer->createService(SERVICE_UUID);
+    BLEService *pService = pServer->createService(SERVICE_UUID);
 
-  bpmChar = service->createCharacteristic(
+    pBpmChar = pService->createCharacteristic(
       BPM_CHAR_UUID,
-      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
-  );
-  bpmChar->setValue(String(bpm).c_str());
+      BLEChar::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    pBpmChar->addDescriptor(new BLE2902());
 
-  beatChar = service->createCharacteristic(
+    pBeatChar = pService->createCharacteristic(
       BEAT_CHAR_UUID,
-      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
-  );
-  beatChar->setValue("0");
+      BLEChar::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    pBeatChar->addDescriptor(new BLE2902());
 
-  startChar = service->createCharacteristic(
+    pStartChar = pService->createCharacteristic(
       START_CHAR_UUID,
-      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
-  );
-  startChar->setValue("0");
+      BLEChar::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    pStartChar->addDescriptor(new BLE2902());
 
-  positionChar = service->createCharacteristic(
-      POSITION_CHAR_UUID,
-      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
-   );
-   positionChar->setValue("0");
-   positionChar->addDescriptor(new NimBLE2904());
+    pService->start();
 
-  service->start();
-
-  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  adv->addServiceUUID(SERVICE_UUID);
-  //adv->setScanResponse(true);
-  adv->start();
-  Serial.println("BLE advertising started");
+    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    pAdvertising->setMinPreferred(0x06);  
+    pAdvertising->setMinPreferred(0x12);
+    BLEDevice::startAdvertising();
+    Serial.println("BLE Advertising started");
 }
 
 void setup() {
-    NimBLEDevice::setTotalConnections(6);
-    NimBLEDevice::setSecurityAuth(false, false, false);  // Pas de pairing (simplifie)
   Serial.begin(115200);
   delay(200);
+
+  NimBLEDevice::setSecurityAuth(false, false, false);  // Pas de pairing (simplifie)
 
   setupButtons();
 
