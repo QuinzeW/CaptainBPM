@@ -58,7 +58,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.355e</p>
+  <p>v0.356</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -161,9 +161,14 @@
       }
     }
 
-    function playClick(accent = false) {
-      ensureAudioContext();
+    let isPlayingBeat = false;
 
+    function playClick(accent = false) {
+      if (isPlayingBeat) return;  // ✅ Ignore si déjà en train de jouer
+      
+      isPlayingBeat = true;
+      ensureAudioContext();
+      
       const t = audioCtx.currentTime;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -180,6 +185,9 @@
 
       osc.start(t);
       osc.stop(t + 0.05);
+      
+      // Reset après le son
+      setTimeout(() => { isPlayingBeat = false; }, 60);
     }
 
     function toggleMute() {
@@ -269,21 +277,19 @@
 
       const now = nowMs();
       const targetTime = lastBeatTime + intervalMs;
-      const delay = Math.max(0, targetTime - now);
-
-      requestAnimationFrame(() => {
-        const actualTime = nowMs();
+      
+      // Si on est pile sur le beat ou très proche
+      if (now >= targetTime - 10) {  // Tolérance 10ms
+        const accent = (Math.floor(lastBeatTime / intervalMs) % 4 === 0);
         
-        // Joue TOUJOURS le beat, même en retard
-        if (actualTime >= targetTime - 5) {  // Tolérance 5ms
-          playClick((Math.round(lastBeatTime / intervalMs) % 4) === 0);
-          pulseVisual();
-          
-          lastBeatTime = actualTime;  // Timestamp réel du beat joué
-        }
+        playClick(accent);     // ✅ UN SEUL son
+        pulseVisual();
         
-        scheduleNextBeat();  // Chaînage continu
-      });
+        lastBeatTime = now;    // Timestamp réel
+      }
+      
+      // Planifie le prochain
+      requestAnimationFrame(scheduleNextBeat);
     }
 
   //  const delay = Math.max(1, nextBeatAtMs - now);  // Au moins 1ms
@@ -320,14 +326,12 @@
       ensureAudioContext();
       recomputeInterval();
       running = true;
-      statusEl.textContent = "En lecture";
-
-      if (tapOriginMs === null) {
-        tapOriginMs = nowMs();
-      }
-      nextBeatAtMs = computeNextBeatTime(nowMs());
-      scheduleNextBeat();
+      
+      lastBeatTime = nowMs();  // Premier beat MAINTENANT
+      scheduleNextBeat();      // Lance la boucle rAF
+      
       updateUI();
+      setMessage("Métronome démarré");
     }
 
     function stopMetronome() {
