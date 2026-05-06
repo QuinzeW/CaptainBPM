@@ -61,7 +61,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.3</p>
+  <p>v0.31</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -356,6 +356,7 @@
         
         // BPM
         const bpmChar = await service.getCharacteristic(BPM_CHAR_UUID);
+        const initialBpmValue = await bpmChar.readValue();
         const initialValue = await bpmChar.readValue();
         const decodedBpm = new TextDecoder().decode(initialBpmValue.buffer).trim();
         const parsedBpm  = parseInt(decodedBpm, 10);
