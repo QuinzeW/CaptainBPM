@@ -61,7 +61,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.22</p>
+  <p>v0.3</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -80,6 +80,8 @@
   <script>
     const SERVICE_UUID = '12345678-1234-1234-1234-1234567890ab';
     const BPM_CHAR_UUID = '12345678-1234-1234-1234-1234567890ac';
+    const BEAT_CHAR_UUID  = "12345678-1234-1234-1234-1234567890ad";
+    const START_CHAR_UUID = "12345678-1234-1234-1234-1234567890ae";
 
     const bpmValue = document.getElementById("bpmValue");
     const statusEl = document.getElementById("status");
@@ -89,6 +91,7 @@
     const tapSyncBtn = document.getElementById("tapSyncBtn");
     const connectBtn = document.getElementById("connectBtn")
     const muteBtn = document.getElementById("muteBtn");
+    
     muteBtn.addEventListener("click", toggleMute);
 
     // ============================================================
@@ -99,12 +102,18 @@
     let running = false;         // Métronome actif ou non.
     let nextBeatAtMs = 0;        // Prochain beat planifié.
     let tapOriginMs = null;      // Dernier tap = nouvelle origine de phase.
-    let beatTimerId = null;      // Timer du scheduler.
+    
+    // Horloge de session reçue du master
+    let sessionStartMsMaster = 0;  // valeur en ms (millis ESP32)
+    let lastSessionSyncLocal = 0;  // performance.now() au moment où on a reçu sessionStartMsMaster
+
+    // AUDIO
     let audioCtx = null;         // Contexte audio Web Audio.
-    let device = null;           // Appareil BLE connecté.
-    let metronomeStarted = false;// Evite de lancer le métronome plusiurs fois
     let masterGainNode = null;   // Mute btn
     let muted = false;           // Event mute
+    let beatTimerId = null;      // Timer du scheduler.
+    let device = null;           // Appareil BLE connecté.
+    let metronomeStarted = false;// Evite de lancer le métronome plusiurs fois
     let muteBeatsRemaining = 0;  // compte combien de battements restent muets
     let tapLock = false;         // évite qu’un effet visuel ou un double clic perturbe le traitement du tap
 
@@ -188,13 +197,10 @@
     function pulseVisual() {
       // Retire la classe pour pouvoir relancer l'animation même si le beat précédent a été très proche.
       beatEl.classList.remove("pulsing");
-
       // Force un reflow pour que le navigateur "voie" la suppression et rejoue l'animation au prochain ajout de classe.
       void beatEl.offsetWidth;
-
       // Relance l'animation CSS.
       beatEl.classList.add("pulsing");
-
       // Nettoyage après l'animation.
       setTimeout(() => {
         beatEl.classList.remove("pulsing");
@@ -208,16 +214,41 @@
     // Le dernier clic devient le nouveau point de départ.
     function tapSynchro() {
       const now = performance.now();
-
       // Priorité absolue : on traite le tap immédiatement.
       tapOriginMs = now;
       nextBeatAtMs = tapOriginMs;
-
       // On coupe le son pour les 2 prochains beats.
       muteBeatsRemaining = 2;
-
       setMessage("Tap synchro enregistré. Son muet pendant 2 battements.");
+      if (running) {
+        clearTimeout(beatTimerId);
+        scheduleNextBeat();
+      }
+    }
 
+    // ============================================================
+    // CALCUL DE LA POSITION À PARTIR DU TIMECODE MASTER
+    // ============================================================
+    function syncFromMasterTimecode() {
+      if (!sessionStartMsMaster) return;
+      // temps local depuis la réception du dernier sessionStartMsMaster
+      const localNow   = nowMs();
+      const localDelta = localNow - lastSessionSyncLocal;
+
+      // estimation du temps "session" côté master maintenant
+      const sessionNowMs = sessionStartMsMaster + localDelta;
+
+      // si on a un BPM, on calcule la phase
+      const beatsSinceStart = (sessionNowMs - sessionStartMsMaster) / intervalMs;
+      const beatIndex       = Math.floor(beatsSinceStart);
+      const nextBeatSession = sessionStartMsMaster + (beatIndex + 1) * intervalMs;
+
+      // On cale notre origine et le prochain beat en ms locale
+      const offsetToNextBeat = nextBeatSession - sessionNowMs; // ms
+      tapOriginMs = localNow + (offsetToNextBeat - intervalMs); // origine la plus proche
+      nextBeatAtMs = localNow + offsetToNextBeat;
+
+      setMessage("Synchronisé sur le master.");
       if (running) {
         clearTimeout(beatTimerId);
         scheduleNextBeat();
@@ -228,67 +259,44 @@
     // CALCUL DU PROCHAIN BEAT
     // ============================================================
     function computeNextBeatTime(referenceNowMs) {
-      if (tapOriginMs === null) {
-        return referenceNowMs;
-      }
-
-      const elapsed = referenceNowMs - tapOriginMs;
+      if (tapOriginMs === null) return referenceNowMs;
+      const elapsed       = referenceNowMs - tapOriginMs;
       const beatsSinceTap = Math.floor(elapsed / intervalMs);
       return tapOriginMs + (beatsSinceTap + 1) * intervalMs;
     }
 
     function scheduleNextBeat() {
-      clearTimeout(beatTimerId);
+  clearTimeout(beatTimerId);
+  if (!running) return;
 
-      if (!running) return;
+  const now = nowMs();
+  if (!nextBeatAtMs) {
+    nextBeatAtMs = computeNextBeatTime(now);
+  }
 
-      const now = nowMs();
+  const delay = Math.max(0, nextBeatAtMs - now);
 
-      // Si aucun beat n'est planifié ou si on a dépassé le temps prévu,
-      // on recalcule à partir du dernier tap.
-      if (!nextBeatAtMs || nextBeatAtMs <= now) {
-        nextBeatAtMs = computeNextBeatTime(now);
-      }
+  beatTimerId = setTimeout(() => {
+    const accent = (Math.round(nextBeatAtMs / intervalMs) % 4 === 0);
+    const isMutedByTap = muteBeatsRemaining > 0;
 
-      const delay = Math.max(0, nextBeatAtMs - now);
-
-      beatTimerId = setTimeout(() => {
-        const accent = (Math.round(nextBeatAtMs / intervalMs) % 4) === 0;
-        const isMutedByTap = muteBeatsRemaining > 0;
-
-        // Déclenchement local du son et de l'animation.
-        // playClick(accent);
-        // pulseVisual(accent);
-
-        if (!isMutedByTap) {
-          playClick(accent);
-        }
-
-        pulseVisual(accent);
-
-        if (muteBeatsRemaining > 0) {
-          muteBeatsRemaining -= 1;
-        }
-
-        nextBeatAtMs += intervalMs;
-        scheduleNextBeat();
-      }, delay);
-
-      // beatTimerId = setTimeout(() => {
-      //   
-
-      //   // Prépare le beat suivant.
-      //   nextBeatAtMs += intervalMs;
-
-      //   // Si le timing a trop dérivé, on resynchronise proprement.
-      //   const realNow = nowMs();
-      //   if (nextBeatAtMs < realNow - intervalMs) {
-      //     nextBeatAtMs = computeNextBeatTime(realNow);
-      //   }
-
-      //   scheduleNextBeat();
-      // }, delay);
+    if (!isMutedByTap) {
+      playClick(accent);
+      pulseVisual();
+    } else {
+      muteBeatsRemaining--;
     }
+
+    nextBeatAtMs += intervalMs;
+
+    const realNow = nowMs();
+    if (nextBeatAtMs < realNow - intervalMs) {
+      nextBeatAtMs = computeNextBeatTime(realNow);
+    }
+
+    scheduleNextBeat();
+  }, delay);
+}
 
     function rescheduleAfterBpmChange() {
       if (!running) return;
@@ -297,17 +305,39 @@
     }
 
     // ============================================================
-    // BPM
+    // // DÉMARRER/ARRÊTER MÉTRONOME LOCAL
     // ============================================================
-    function setBpm(newBpm) {
-      const parsed = Number(newBpm);
-      if (!Number.isFinite(parsed) || parsed <= 0) return;
-
-      bpm = parsed;
+    function startMetronome() {
+      ensureAudioContext();
       recomputeInterval();
+      running = true;
+      statusEl.textContent = "En lecture";
+
+      if (tapOriginMs === null) {
+        tapOriginMs = nowMs();
+      }
+      nextBeatAtMs = computeNextBeatTime(nowMs());
+      scheduleNextBeat();
       updateUI();
-      rescheduleAfterBpmChange();
     }
+
+    function stopMetronome() {
+      running = false;
+      clearTimeout(beatTimerId);
+      beatTimerId = null;
+      statusEl.textContent = "Arrêt";
+      setMessage("Métronome arrêté.");
+      updateUI();
+    }
+    // function setBpm(newBpm) {
+    //   const parsed = Number(newBpm);
+    //   if (!Number.isFinite(parsed) || parsed <= 0) return;
+
+    //   bpm = parsed;
+    //   recomputeInterval();
+    //   updateUI();
+    //   rescheduleAfterBpmChange();
+    // }
 
     // ============================================================
     // BLE
@@ -315,34 +345,77 @@
     async function connectBle() {
       try {
         statusEl.textContent = 'Sélection du boîtier...';
-
         device = await navigator.bluetooth.requestDevice({
           filters: [{ services: [SERVICE_UUID] }],
           optionalServices: [SERVICE_UUID]
         });
 
         statusEl.textContent = `Connexion à ${device.name || 'boîtier BLE'}...`;
-
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
+        
+        // BPM
         const bpmChar = await service.getCharacteristic(BPM_CHAR_UUID);
-
         const initialValue = await bpmChar.readValue();
-        const decoded = new TextDecoder().decode(initialValue.buffer).trim();
-        setBpm(parseInt(decoded, 10) || 120);
-        startMetronomeOnce();
+        const decodedBpm = new TextDecoder().decode(initialBpmValue.buffer).trim();
+        const parsedBpm  = parseInt(decodedBpm, 10);
+        if (Number.isFinite(parsedBpm) && parsedBpm > 0) {
+          bpm = parsedBpm;
+          recomputeInterval();
+          updateUI();
+        }
 
-        await bpmChar.startNotifications();
+        bpmChar.startNotifications();
         bpmChar.addEventListener("characteristicvaluechanged", event => {
           const text = new TextDecoder().decode(event.target.value.buffer).trim();
           const incomingBpm = parseInt(text, 10);
-
           if (Number.isFinite(incomingBpm) && incomingBpm > 0) {
-            setBpm(incomingBpm);
-            setMessage(`BPM mis à jour : ${incomingBpm}`);
-            startMetronomeOnce();
+            bpm = incomingBpm;
+            setMessage("BPM mis à jour: " + incomingBpm);
+            recomputeInterval();
+            rescheduleAfterBpmChange();
           }
         });
+
+        // START TIME (timcode de session)
+        const startChar = await service.getCharacteristic(STARTC_HAR_UUID);
+        const initialStartValue = await startChar.readValue();
+        const decodedStart = new TextDecoder().decode(initialStartValue.buffer).trim();
+        const parsedStart  = parseInt(decodedStart, 10);
+        if (Number.isFinite(parsedStart)) {
+          sessionStartMsMaster = parsedStart;
+          lastSessionSyncLocal = nowMs();
+          startMetronomeOnce();
+          syncFromMasterTimecode();
+        }
+
+        startChar.startNotifications();
+        startChar.addEventListener("characteristicvaluechanged", event => {
+          const text = new TextDecoder().decode(event.target.value.buffer).trim();
+          const incomingStart = parseInt(text, 10);
+          if (Number.isFinite(incomingStart)) {
+            sessionStartMsMaster = incomingStart;
+            lastSessionSyncLocal = nowMs();
+            startMetronomeOnce();
+            syncFromMasterTimecode();
+          }
+        });
+
+        // BEATCOUNT (optionnel, utile pour debug ou affichage)
+        try {
+          const beatChar = await service.getCharacteristic(BEAT_CHAR_UUID);
+          beatChar.startNotifications();
+          beatChar.addEventListener("characteristicvaluechanged", event => {
+            const text = new TextDecoder().decode(event.target.value.buffer).trim();
+            const incomingBeatCount = parseInt(text, 10);
+            if (Number.isFinite(incomingBeatCount)) {
+              // Tu peux l'afficher ou l'utiliser pour info
+              console.log("Beat master:", incomingBeatCount);
+            }
+          });
+        } catch (e) {
+          console.warn("BeatChar optionnel, non trouvé:", e);
+        }
 
         device.addEventListener("gattserverdisconnected", () => {
           running = false;
@@ -352,7 +425,7 @@
           setMessage("ESP32 déconnecté.");
         });
 
-        setMessage("Connexion établie. BPM reçu.");
+        setMessage("Connexion établie. BPM & timecode reçus.");
         statusEl.textContent = "Connecté";
       } catch (err) {
         console.error(err);
@@ -363,41 +436,18 @@
     // ============================================================
     // START / STOP
     // ============================================================
-    function startMetronome() {
-      ensureAudioContext();
-      recomputeInterval();
-      running = true;
-      statusEl.textContent = "En lecture";
-      setMessage("Métronome démarré.");
-
-      // Si aucun tap n'a encore eu lieu, on prend l'instant courant comme origine.
-      if (tapOriginMs === null) {
-        tapOriginMs = nowMs();
-      }
-
-      nextBeatAtMs = computeNextBeatTime(nowMs());
-      scheduleNextBeat();
-      updateUI();
+    function startMetronomeOnce() {
+      if (metronomeStarted) return;
+      metronomeStarted = true;
+      startMetronome();
     }
 
-    // function stopMetronome() {
-    //   running = false;
-    //   clearTimeout(beatTimerId);
-    //   beatTimerId = null;
-    //   statusEl.textContent = "Arrêté";
-    //   setMessage("Métronome arrêté.");
-    //   updateUI();
-    // }
-
-    // ============================================================
     // ÉVÉNEMENTS
-    // ============================================================
     tapSyncBtn.addEventListener("click", tapSynchro);
     connectBtn.addEventListener("click", connectBle);
+    muteBtn.addEventListener("click", toggleMute);
 
-    // ============================================================
     // INIT
-    // ============================================================
     recomputeInterval();
     updateUI();
   </script>
