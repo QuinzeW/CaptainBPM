@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CaptainBPM</title>
   <style>
-    /* :root {
-      --accent: #921272;
-    }   */rgb
     body {
       font-family: Arial, sans-serif;
       padding: 20px;
@@ -61,7 +58,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.33c</p>
+  <p>v0.34</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -267,35 +264,34 @@
     }
 
     function scheduleNextBeat() {
-  clearTimeout(beatTimerId);
-  if (!running) return;
+      clearTimeout(beatTimerId);
+      if (!running) return;
 
-  const now = nowMs();
-  if (!nextBeatAtMs) {
-    nextBeatAtMs = computeNextBeatTime(now);
-  }
+      const now = nowMs();
+      // Toujours calculer depuis tapOriginMs (stable
+      if (!nextBeatAtMs < now) {
+       nextBeatAtMs = computeNextBeatTime(now);
+      }
 
-  const delay = Math.max(0, nextBeatAtMs - now);
+  const delay = Math.max(1, nextBeatAtMs - now);  // Au moins 1ms
 
   beatTimerId = setTimeout(() => {
-    const accent = (Math.round(nextBeatAtMs / intervalMs) % 4 === 0);
-    const isMutedByTap = muteBeatsRemaining > 0;
+    // Beat !
+    const accent = (Math.round((nowMs() - tapOriginMs) / intervalMs) % 4 === 0);
 
-    if (!isMutedByTap) {
+    // if (!isMutedByTap) {
       playClick(accent);
       pulseVisual();
-    } else {
-      muteBeatsRemaining--;
-    }
+    // } else {
+    //   muteBeatsRemaining--;
+    // }
 
     nextBeatAtMs += intervalMs;
 
-    const realNow = nowMs();
-    if (nextBeatAtMs < realNow - intervalMs) {
-      nextBeatAtMs = computeNextBeatTime(realNow);
-    }
+    // Prochain beat exactement intervalMs après
+    nextBeatAtMs += intervalMs;
+    scheduleNextBeat()
 
-    scheduleNextBeat();
   }, delay);
 }
 
@@ -330,26 +326,26 @@
       setMessage("Métronome arrêté.");
       updateUI();
     }
-    // SYNCHRO
-    function syncFromMasterPosition(masterPositionMs) {
-      const now = nowMs();
+    // // SYNCHRO
+    // function syncFromMasterPosition(masterPositionMs) {
+    //   const now = nowMs();
       
-      // L'ESP32 nous dit où il en est dans son cycle de 4 beats
-      // On cale notre prochain beat exactement dessus
-      const cycleLength = intervalMs * 4;
-      const offsetToNextBeat = (cycleLength - masterPositionMs) % cycleLength;
+    //   // L'ESP32 nous dit où il en est dans son cycle de 4 beats
+    //   // On cale notre prochain beat exactement dessus
+    //   const cycleLength = intervalMs * 4;
+    //   const offsetToNextBeat = (cycleLength - masterPositionMs) % cycleLength;
       
-      tapOriginMs = now - masterPositionMs;  // On recale notre origine
-      nextBeatAtMs = now + offsetToNextBeat;
+    //   tapOriginMs = now - masterPositionMs;  // On recale notre origine
+    //   nextBeatAtMs = now + offsetToNextBeat;
       
-      if (running) {
-        clearTimeout(beatTimerId);
-        scheduleNextBeat();
-      }
+    //   if (running) {
+    //     clearTimeout(beatTimerId);
+    //     scheduleNextBeat();
+    //   }
       
-      // Debug dans la console
-      console.log(`Sync: master@ ${masterPositionMs}ms → next@ +${Math.round(offsetToNextBeat)}ms`);
-    }
+    //   // Debug dans la console
+    //   console.log(`Sync: master@ ${masterPositionMs}ms → next@ +${Math.round(offsetToNextBeat)}ms`);
+    // }
 
     // ============================================================
     // BLE
@@ -384,9 +380,12 @@
           const incomingBpm = parseInt(text, 10);
           if (Number.isFinite(incomingBpm) && incomingBpm > 0) {
             bpm = incomingBpm;
-            setMessage("BPM mis à jour: " + incomingBpm);  // Message de confirmation
-            recomputeInterval();
-            rescheduleAfterBpmChange();  // Recalage métronome
+            // setMessage("BPM mis à jour: " + incomingBpm);  // Message de confirmation
+            // Recalage doux : prochain beat aligné sur master
+            tapOriginMs = nowMs() - (nowMs() % intervalMs);  // Arrondi au beat précédent
+            rescheduleAfterBpmChange();
+            
+            setMessage(`BPM → ${incomingBpm}`);
             updateUI();  // MET À JOUR #bpmValue immédiatement
           }
         });
@@ -414,15 +413,13 @@
           syncFromMasterTimecode();
         }
 
-        startChar.startNotifications();
+        // Listener START (seulement nouvelle session)
         startChar.addEventListener("characteristicvaluechanged", event => {
           const text = new TextDecoder().decode(event.target.value.buffer).trim();
           const incomingStart = parseInt(text, 10);
           if (Number.isFinite(incomingStart)) {
-            sessionStartMsMaster = incomingStart;
-            lastSessionSyncLocal = nowMs();
-            startMetronomeOnce();
-            syncFromMasterTimecode();
+            // Nouvelle session : on attend le premier beat du master
+            setMessage("Nouvelle session - attente synchro...");
           }
         });
 

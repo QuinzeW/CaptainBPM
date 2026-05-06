@@ -113,10 +113,10 @@ void updateMetronome(uint32_t now) {
     if (!running) return;
     uint32_t intervalMs = 60000UL / (uint32_t)bpm;
 
-    // On calcule combien de ticks on a ratés et on les joue tous
-    while ((uint32_t)(now - lastStepMs) >= intervalMs) {
+    // Un seul tick par passage (stable)
+    if ((uint32_t)(now - lastStepMs) >= intervalMs) {
         lastStepMs += intervalMs;
-        pulseOn();  // pulse + notifyBeat()
+        pulseOn();  // pulse LED + notifyBeat()
     }
 }
 
@@ -244,12 +244,6 @@ void loop() {
         if (running) {
             startSession();
         }
-    }
-    // Envoi position toutes les 100ms aux clients
-    static uint32_t lastPositionSend = 0;
-    if (now - lastPositionSend >= 100) {
-        sendPosition();
-        lastPositionSend = now;
     }
 
     updateMetronome(now);
