@@ -61,7 +61,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.31</p>
+  <p>v0.32</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -379,7 +379,7 @@
         });
 
         // START TIME (timcode de session)
-        const startChar = await service.getCharacteristic(STARTC_HAR_UUID);
+        const startChar = await service.getCharacteristic(START_CHAR_UUID);
         const initialStartValue = await startChar.readValue();
         const decodedStart = new TextDecoder().decode(initialStartValue.buffer).trim();
         const parsedStart  = parseInt(decodedStart, 10);
