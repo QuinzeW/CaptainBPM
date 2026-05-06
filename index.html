@@ -58,7 +58,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.34</p>
+  <p>v0.35</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -380,14 +380,30 @@
           const incomingBpm = parseInt(text, 10);
           if (Number.isFinite(incomingBpm) && incomingBpm > 0) {
             bpm = incomingBpm;
-            // setMessage("BPM mis à jour: " + incomingBpm);  // Message de confirmation
-            // Recalage doux : prochain beat aligné sur master
-            tapOriginMs = nowMs() - (nowMs() % intervalMs);  // Arrondi au beat précédent
-            rescheduleAfterBpmChange();
+            recomputeInterval();
             
-            setMessage(`BPM → ${incomingBpm}`);
-            updateUI();  // MET À JOUR #bpmValue immédiatement
+            // ✅ NOUVELLE ORIGINE basée sur beat actuel du master
+            const now = nowMs();
+            tapOriginMs = now - (now % intervalMs);  // Arrondi au dernier beat complet
+            
+            clearTimeout(beatTimerId);
+            nextBeatAtMs = computeNextBeatTime(now);
+            scheduleNextBeat();
+            
+            updateUI();
+            setMessage(`BPM → ${bpm} (resync)`);
           }
+        });
+
+        const beatChar = await service.getCharacteristic(BEAT_CHAR_UUID);
+        const initialBeat = await beatChar.readValue();  // Lit le beatCount actuel
+        console.log("Beat master:", initialBeat);
+
+        beatChar.startNotifications();
+        beatChar.addEventListener("characteristicvaluechanged", () => {
+          // Nouveau beat reçu → resync immédiate
+          tapOriginMs = nowMs() - (nowMs() % intervalMs);
+          rescheduleAfterBpmChange();
         });
 
         const positionChar = await service.getCharacteristic(POSITION_CHAR_UUID);

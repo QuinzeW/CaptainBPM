@@ -56,7 +56,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
     deviceConnected = false;
     Serial.printf("Client disconnected, reason=%d\n", reason);
-    delay(100);
+    delay(500);
     NimBLEDevice::startAdvertising();
     Serial.println("Advertising restarted after disconnect");
   }
@@ -194,6 +194,8 @@ void setupBle() {
 }
 
 void setup() {
+    NimBLEDevice::setTotalConnections(6);
+    NimBLEDevice::setSecurityAuth(false, false, false);  // Pas de pairing (simplifie)
   Serial.begin(115200);
   delay(200);
 
