@@ -58,7 +58,7 @@
 </head>
 <body>
   <h1>CaptainBPM</h1>
-  <p>v0.355c</p>
+  <p>v0.355d</p>
   <button id="connectBtn">Connexion</button>
 
   <div class="card">
@@ -286,26 +286,26 @@
       });
     }
 
-  // const delay = Math.max(1, nextBeatAtMs - now);  // Au moins 1ms
+  //  const delay = Math.max(1, nextBeatAtMs - now);  // Au moins 1ms
 
-  beatTimerId = setTimeout(() => {
-    // Beat !
-    const accent = (Math.round((nowMs() - tapOriginMs) / intervalMs) % 4 === 0);
+  // beatTimerId = setTimeout(() => {
+  //   // Beat !
+  //   const accent = (Math.round((nowMs() - tapOriginMs) / intervalMs) % 4 === 0);
 
-    // if (!isMutedByTap) {
-      playClick(accent);
-      pulseVisual();
-    // } else {
-    //   muteBeatsRemaining--;
-    // }
+  //   // if (!isMutedByTap) {
+  //     playClick(accent);
+  //     pulseVisual();
+  //   // } else {
+  //   //   muteBeatsRemaining--;
+  //   // }
 
-    nextBeatAtMs += intervalMs;
+  //   nextBeatAtMs += intervalMs;
 
-    // Prochain beat exactement intervalMs après
-    nextBeatAtMs += intervalMs;
-    scheduleNextBeat()
+  //   // Prochain beat exactement intervalMs après
+  //   nextBeatAtMs += intervalMs;
+  //   scheduleNextBeat()
 
-  }, delay);
+  // }, delay);
 
     function rescheduleAfterBpmChange() {
       if (!running) return;
