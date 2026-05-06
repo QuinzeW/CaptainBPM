@@ -31,7 +31,6 @@ BLEServer *pServer = NULL;
 BLECharacteristic *pBpmChar;
 BLECharacteristic *pBeatChar;
 BLECharacteristic *pStartChar;
-bool deviceConnected = false;
 
 volatile bool deviceConnected = false;
 
@@ -97,8 +96,8 @@ void notifyStartTime() {
     // On envoie l'instant de début de la session en millisecondes (uint32)
     // comme un texte, pour rester compatible avec le code web actuel.
     String s = String(sessionStartMs);
-    startChar->setValue(s.c_str());
-    startChar->notify();
+    pStartChar->setValue(s.c_str());
+    pStartChar->notify();
     Serial.printf("SESSION_START=%lu\n", sessionStartMs);
 }
 
@@ -219,19 +218,19 @@ void setupBle() {
 
     pBpmChar = pService->createCharacteristic(
       BPM_CHAR_UUID,
-      BLEChar::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     pBpmChar->addDescriptor(new BLE2902());
 
     pBeatChar = pService->createCharacteristic(
       BEAT_CHAR_UUID,
-      BLEChar::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     pBeatChar->addDescriptor(new BLE2902());
 
     pStartChar = pService->createCharacteristic(
       START_CHAR_UUID,
-      BLEChar::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
     );
     pStartChar->addDescriptor(new BLE2902());
 
@@ -250,7 +249,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
-  NimBLEDevice::setSecurityAuth(false, false, false);  // Pas de pairing (simplifie)
+//   NimBLEDevice::setSecurityAuth(false, false, false);  // Pas de pairing (simplifie)
 
   setupButtons();
 
@@ -264,17 +263,17 @@ void setup() {
   startSession();
 }
 
-void sendPosition() {
-    if (!running) return;
+// void sendPosition() {
+//     if (!running) return;
     
-    uint32_t sessionTimeMs = millis() - sessionStartMs;
-    uint32_t intervalMs = 60000UL / bpm;
-    uint32_t positionInCycle = sessionTimeMs % (intervalMs * 4);  // Position dans 4 beats
+//     uint32_t sessionTimeMs = millis() - sessionStartMs;
+//     uint32_t intervalMs = 60000UL / bpm;
+//     uint32_t positionInCycle = sessionTimeMs % (intervalMs * 4);  // Position dans 4 beats
     
-    String s = String(positionInCycle);
-    positionChar->setValue(s.c_str());
-    positionChar->notify();
-}
+//     String s = String(positionInCycle);
+//     positionChar->setValue(s.c_str());
+//     positionChar->notify();
+// }
 
 void loop() {
     uint32_t now = millis();
