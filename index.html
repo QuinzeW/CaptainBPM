@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.031</h1>
+  <h1>CaptainBPM v1.032</h1>
   <button id="connectBtn">Connexion BLE</button>
   <div class="card">
     <div>BPM</div>
@@ -162,27 +162,6 @@
         scheduleNextBeat();
       }
     }
-
-    // BOUTONS +- CORRIGÉS
-    async function changeBPM(delta) {
-      if (!device?.gatt?.connected) {
-        log('Pas connecté');
-        return;
-      }
-      bpm += delta;
-      bpm = Math.max(20, Math.min(300, bpm));
-      try {
-        const service = await device.gatt.getPrimaryService(SERVICE_UUID);
-        const char = await service.getCharacteristic(BPM_UUID);
-        await char.writeValueWithoutResponse(String(bpm));  // CORRIGÉ: write sans response
-        log(`BPM → ${bpm} envoyé à ESP32`);
-        recomputeInterval();
-        updateUI();
-      } catch (e) {
-        log(`Erreur write BPM: ${e.message}`);
-      }
-    }
-
     // CONNEXION CORRIGÉE
     async function connectBLE() {
       try {
