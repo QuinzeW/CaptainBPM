@@ -3,8 +3,8 @@
 #include <Adafruit_NeoPixel.h>
 
 // MIDI BLE OFFICIEL
-#define MIDI_SERVICE_UUID "03B80E5A-EDE8-4B33-A751-6CE34EC4C700"
-#define MIDI_IO_UUID      "7772E5DB-3868-4112-A1A9-F2669D106BF3"
+#define MIDI_SERVICE_UUID "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+#define MIDI_IO_UUID      "7772e5db-3868-4112-a1a9-f2669d106bf3"
 
 #define BTN_UP 23
 #define BTN_DOWN 21
@@ -30,6 +30,15 @@ bool lastBtnUp = HIGH, lastBtnDown = HIGH;
 uint32_t lastBtnUpMs = 0, lastBtnDownMs = 0;
 const uint32_t debounceMs = 40;
 
+// DÉCLARATIONS AVANT les classes
+void sendBPM();
+void sendBeat();
+void sendTimecode();
+void sendClients();
+void sendAllData();
+void pulseOn();
+void startSession();
+
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
     clientCount++;
@@ -42,6 +51,23 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     Serial.printf("Client déconnecté: %d restants\n", clientCount);
     sendAllData();
     NimBLEDevice::startAdvertising();
+  }
+};
+
+class MidiCallbacks : public NimBLECharacteristicCallbacks {
+public:
+  void onWrite(NimBLECharacteristic* pChar, NimBLEConnInfo& connInfo) override {  // ← 2 params !
+    std::string rxValue = pChar->getValue();
+    if (rxValue.length() >= 2) {
+      uint8_t type = rxValue[0];
+      uint8_t newBpm = rxValue[1];
+      if (type == 0x01 && newBpm >= 20 && newBpm <= 300) {
+        bpm = newBpm;
+        Serial.printf("BPM reçu client %s: %d\n", connInfo.getAddress().toString().c_str(), bpm);
+        sendBPM();
+        if (running) startSession();
+      }
+    }
   }
 };
 
@@ -142,30 +168,16 @@ void setupBLE() {
 
   NimBLEService* service = pServer->createService(MIDI_SERVICE_UUID);
 
-  // UNE SEULE caractéristique MIDI : tout dedans
   midiChar = service->createCharacteristic(
     MIDI_IO_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
-  midiChar->setCallbacks(new NimBLECharacteristicCallbacks() {
-    void onWrite(NimBLECharacteristic* pChar) override {
-      std::string rxValue = pChar->getValue();
-      if (rxValue.length() >= 2) {
-        uint8_t type = rxValue[0];
-        uint8_t newBpm = rxValue[1];
-        if (type == 0x01 && newBpm >= 20 && newBpm <= 300) {  // BPM write
-          bpm = newBpm;
-          Serial.printf("BPM reçu client: %d\n", bpm);
-          sendBPM();
-          if (running) startSession();
-        }
-      }
-    }
-  });
+  
+  midiChar->setCallbacks(new MidiCallbacks());
 
   service->start();
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(MIDI_SERVICE_UUID);
-  adv->setScanResponse(true);
+  adv->enableScanResponse(true);
   NimBLEDevice::startAdvertising();
   Serial.println("MIDI BLE prêt");
 }
