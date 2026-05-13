@@ -166,6 +166,7 @@ void setupBLE() {
 
   service->start();
 
+  pServer->setMaxConnections(6);  // CORRIGÉ: Multi-clients
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(SERVICE_UUID);
   // CORRIGÉ: Pas de scanResponseData complexe
