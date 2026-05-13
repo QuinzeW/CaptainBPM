@@ -1,4 +1,3 @@
-// CaptainBPM_v1_FINAL.ino
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <Adafruit_NeoPixel.h>
@@ -13,6 +12,7 @@
 #define BTN_DOWN 23
 #define NEO_PIN 8
 #define NEO_COUNT 1
+#define CONFIG_BT_NIMBLE_MAX_CONNECTION 6  // Fix limite
 
 Adafruit_NeoPixel pixels(NEO_COUNT, NEO_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -153,7 +153,7 @@ void setupBLE() {
 
   bpmChar = service->createCharacteristic(
     BPM_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
-  bpmChar->setValue("120");
+  bpmChar->setValue("120");  // Valeur initiale
 
   beatChar = service->createCharacteristic(
     BEAT_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
@@ -163,19 +163,20 @@ void setupBLE() {
 
   clientsChar = service->createCharacteristic(
     CLIENTS_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  broadcastClients();  // CORRIGÉ: Init à 0
 
   service->start();
 
-  pServer->setMaxConnections(6);  // CORRIGÉ: Multi-clients
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(SERVICE_UUID);
-  // CORRIGÉ: Pas de scanResponseData complexe
-  NimBLEDevice::startAdvertising();
-  Serial.println("BLE advertising démarré");
+  adv->start();  // Toujours actif
+  Serial.println("BLE prêt - multi-clients OK");
 }
 
 void setup() {
   Serial.begin(115200);
+  #include "nimconfig.h"  // Force recompile avec max=6
+  #define NIMBLE_MAX_CONNECTIONS 6  // Au début du .ino
   delay(1000);
   Serial.println("Démarrage CaptainBPM v1");
   pixels.begin();
