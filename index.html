@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.02</h1>
+  <h1>CaptainBPM v1.03</h1>
   <button id="connectBtn">Connexion BLE</button>
   <div class="card">
     <div>BPM</div>
@@ -196,17 +196,25 @@
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
 
-        // BPM CORRIGÉ: read initial + notify
+        // BPM READ INITIAL (fix rapidité)
         const bpmChar = await service.getCharacteristic(BPM_UUID);
-        // READ INITIAL
-        const initialValue = await bpmChar.readValue();
-        let initialBpm = parseInt(new TextDecoder().decode(initialValue.buffer).trim());
-        if (initialBpm > 0) {
-          bpm = initialBpm;
-          recomputeInterval();
-          updateUI();
-          log(`BPM initial ESP32: ${bpm}`);
+        const initBpmData = await bpmChar.readValue();  // LECTURE
+        bpm = parseInt(new TextDecoder().decode(initBpmData.buffer).trim()) || 120;
+        recomputeInterval();
+        updateUI();
+        log(`BPM ESP32 initial: ${bpm}`);
+
+        // Clients READ INITIAL
+        const clientsChar = await service.getCharacteristic(CLIENTS_UUID);
+        const initClientsData = await clientsChar.readValue();
+        try {
+          const clientsData = JSON.parse(new TextDecoder().decode(initClientsData.buffer));
+          updateClients(clientsData.clients);
+          log(`Clients init: ${clientsData.clients}`);
+        } catch (e) {
+          log('Clients read erreur');
         }
+
         bpmChar.startNotifications();
         bpmChar.addEventListener('characteristicvaluechanged', (e) => {
           const newBpm = parseInt(new TextDecoder().decode(e.target.value.buffer).trim());
@@ -218,22 +226,24 @@
           }
         });
 
-        // Write BPM CORRIGÉ: ArrayBuffer
         async function changeBPM(delta) {
-          if (!device?.gatt?.connected) return log('Non connecté');
+          if (!device?.gatt?.connected) {
+            log('Non connecté');
+            return;
+          }
           bpm += delta;
           bpm = Math.max(20, Math.min(300, bpm));
           try {
             const service = await device.gatt.getPrimaryService(SERVICE_UUID);
             const char = await service.getCharacteristic(BPM_UUID);
             const encoder = new TextEncoder();
-            const data = encoder.encode(String(bpm));  // CORRIGÉ: ArrayBuffer
-            await char.writeValueWithoutResponse(data);
+            const data = encoder.encode(String(bpm));  // ArrayBuffer OK
+            await char.writeValueWithoutResponse(data);  // FIXED
             recomputeInterval();
             updateUI();
-            log(`BPM ${bpm} → ESP32`);
+            log(`BPM ${bpm} envoyé ESP32`);
           } catch (e) {
-            log(`Write erreur: ${e.message}`);
+            log(`Erreur write: ${e.message}`);
           }
         }
 

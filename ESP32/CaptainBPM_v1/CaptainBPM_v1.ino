@@ -49,15 +49,16 @@ void startSession();
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
     clientCount++;
-    Serial.printf("Client connecté #%d\n", clientCount);
+    Serial.printf("Client #%d connecté\n", clientCount);
     broadcastClients();
+    NimBLEDevice::startAdvertising();
   }
 
   void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
     if (clientCount > 0) clientCount--;
     Serial.printf("Client déconnecté, reste %d\n", clientCount);
     broadcastClients();
-    NimBLEDevice::startAdvertising();
+    NimBLEDevice::startAdvertising();  // Déjà là
   }
 };
 
