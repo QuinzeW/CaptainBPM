@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.032</h1>
+  <h1>CaptainBPM v1.04</h1>
   <button id="connectBtn">Connexion BLE</button>
   <div class="card">
     <div>BPM</div>
@@ -206,6 +206,8 @@
         });
 
         async function changeBPM(delta) {
+          bpmUpBtn.onclick = () => changeBPM(1);
+          bpmDownBtn.onclick = () => changeBPM(-1);
           if (!device?.gatt?.connected) {
             log('Non connecté');
             return;
