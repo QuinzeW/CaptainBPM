@@ -2,28 +2,20 @@
 #include <NimBLEDevice.h>
 #include <Adafruit_NeoPixel.h>
 
-#define SERVICE_UUID        "12345678-1234-1234-1234-1234567890ab"
-#define BPM_UUID            "12345678-1234-1234-1234-1234567890ac"
-#define BEAT_UUID           "12345678-1234-1234-1234-1234567890ad"
-#define START_UUID          "12345678-1234-1234-1234-1234567890ae"
-#define CLIENTS_UUID        "12345678-1234-1234-1234-1234567890b0"
+// MIDI BLE OFFICIEL
+#define MIDI_SERVICE_UUID "03B80E5A-EDE8-4B33-A751-6CE34EC4C700"
+#define MIDI_IO_UUID      "7772E5DB-3868-4112-A1A9-F2669D106BF3"
 
-#define BTN_UP 21
-#define BTN_DOWN 23
+#define BTN_UP 23
+#define BTN_DOWN 21
 #define NEO_PIN 8
 #define NEO_COUNT 1
-#define CONFIG_BT_NIMBLE_MAX_CONNECTION 6  // Fix limite
 
 Adafruit_NeoPixel pixels(NEO_COUNT, NEO_PIN, NEO_GRB + NEO_KHZ800);
-
-NimBLECharacteristic *bpmChar;
-NimBLECharacteristic *beatChar; 
-NimBLECharacteristic *startChar;
-NimBLECharacteristic *clientsChar;
+NimBLECharacteristic *midiChar;
 NimBLEServer *pServer;
 
-int clientCount = 0;  // SIMPLIFIÉ: juste le nombre (MAC optionnel après)
-
+int clientCount = 0;
 int bpm = 120;
 uint32_t beatCount = 0;
 uint32_t sessionStartMs = 0;
@@ -38,57 +30,57 @@ bool lastBtnUp = HIGH, lastBtnDown = HIGH;
 uint32_t lastBtnUpMs = 0, lastBtnDownMs = 0;
 const uint32_t debounceMs = 40;
 
-// Déclarations AVANT
-void sendBPM();
-void notifyBeat();
-void notifyStartTime();
-void broadcastClients();
-void pulseOn();
-void startSession();
-
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
     clientCount++;
-    Serial.printf("Client #%d connecté\n", clientCount);
-    broadcastClients();
-    NimBLEDevice::startAdvertising();
+    Serial.printf("Client MIDI #%d\n", clientCount);
+    sendAllData();
+    NimBLEDevice::startAdvertising();  // Multi-clients
   }
-
   void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
     if (clientCount > 0) clientCount--;
-    Serial.printf("Client déconnecté, reste %d\n", clientCount);
-    broadcastClients();
-    NimBLEDevice::startAdvertising();  // Déjà là
+    Serial.printf("Client déconnecté: %d restants\n", clientCount);
+    sendAllData();
+    NimBLEDevice::startAdvertising();
   }
 };
 
-void broadcastClients() {
-  if (!clientsChar) return;
-  
-  String json = String("{\"clients\":") + clientCount + "}";
-  clientsChar->setValue((uint8_t*)json.c_str(), json.length());
-  clientsChar->notify();
-  Serial.printf("Broadcast clients: %d\n", clientCount);
-}
-
+// Envoi MIDI-like: [Type][BPM/Beat/Timecode][Valeur]
 void sendBPM() {
-  if (bpmChar) {
-    bpmChar->setValue(String(bpm).c_str());
-    bpmChar->notify();
-  }
+  if (!midiChar) return;
+  uint8_t packet[4] = {0x01, (uint8_t)bpm, 0, 0};  // Type 1 = BPM
+  midiChar->setValue(packet, 4);
+  midiChar->notify();
 }
 
-void notifyBeat() {
-  if (beatChar) {
-    beatChar->setValue(String(beatCount).c_str());
-    beatChar->notify();
-  }
+void sendBeat() {
+  if (!midiChar) return;
+  uint8_t packet[5] = {0x02, beatCount & 0xFF, (beatCount >> 8) & 0xFF, 0, 0};  // Type 2 = Beat
+  midiChar->setValue(packet, 5);
+  midiChar->notify();
 }
 
-void notifyStartTime() {
-  if (startChar) {
-    startChar->setValue(String(sessionStartMs).c_str());
-    startChar->notify();
+void sendTimecode() {
+  if (!midiChar) return;
+  uint8_t packet[7] = {0x03, sessionStartMs & 0xFF, (sessionStartMs >> 8) & 0xFF,
+                       (sessionStartMs >> 16) & 0xFF, (sessionStartMs >> 24) & 0xFF, 0, 0};  // Type 3
+  midiChar->setValue(packet, 7);
+  midiChar->notify();
+}
+
+void sendClients() {
+  if (!midiChar) return;
+  uint8_t packet[2] = {0x04, (uint8_t)clientCount};  // Type 4 = Clients
+  midiChar->setValue(packet, 2);
+  midiChar->notify();
+}
+
+void sendAllData() {
+  sendClients();
+  sendBPM();
+  if (running) {
+    sendTimecode();
+    sendBeat();
   }
 }
 
@@ -98,7 +90,7 @@ void pulseOn() {
   pulseActive = true;
   pulseOffAtMs = millis() + pulseDurationMs;
   beatCount++;
-  notifyBeat();
+  sendBeat();
 }
 
 void updatePulse(uint32_t now) {
@@ -125,10 +117,8 @@ void startSession() {
   beatCount = 0;
   sessionStartMs = millis();
   lastStepMs = millis();
-  notifyStartTime();
-  sendBPM();
-  notifyBeat();
-  Serial.println("Session démarrée");
+  sendAllData();
+  Serial.println("Session MIDI démarrée");
 }
 
 void updateMetronome(uint32_t now) {
@@ -146,40 +136,44 @@ void setupButtons() {
 }
 
 void setupBLE() {
-  NimBLEDevice::init("CaptainBPM");
+  NimBLEDevice::init("CaptainBPM-MIDI");
   pServer = NimBLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
 
-  NimBLEService* service = pServer->createService(SERVICE_UUID);
+  NimBLEService* service = pServer->createService(MIDI_SERVICE_UUID);
 
-  bpmChar = service->createCharacteristic(
-    BPM_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
-  bpmChar->setValue("120");  // Valeur initiale
-
-  beatChar = service->createCharacteristic(
-    BEAT_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-
-  startChar = service->createCharacteristic(
-    START_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-
-  clientsChar = service->createCharacteristic(
-    CLIENTS_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-  broadcastClients();  // CORRIGÉ: Init à 0
+  // UNE SEULE caractéristique MIDI : tout dedans
+  midiChar = service->createCharacteristic(
+    MIDI_IO_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+  midiChar->setCallbacks(new NimBLECharacteristicCallbacks() {
+    void onWrite(NimBLECharacteristic* pChar) override {
+      std::string rxValue = pChar->getValue();
+      if (rxValue.length() >= 2) {
+        uint8_t type = rxValue[0];
+        uint8_t newBpm = rxValue[1];
+        if (type == 0x01 && newBpm >= 20 && newBpm <= 300) {  // BPM write
+          bpm = newBpm;
+          Serial.printf("BPM reçu client: %d\n", bpm);
+          sendBPM();
+          if (running) startSession();
+        }
+      }
+    }
+  });
 
   service->start();
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  adv->addServiceUUID(SERVICE_UUID);
-  adv->start();  // Toujours actif
-  Serial.println("BLE prêt - multi-clients OK");
+  adv->addServiceUUID(MIDI_SERVICE_UUID);
+  adv->setScanResponse(true);
+  NimBLEDevice::startAdvertising();
+  Serial.println("MIDI BLE prêt");
 }
 
 void setup() {
   Serial.begin(115200);
-  #include "nimconfig.h"  // Force recompile avec max=6
-  #define NIMBLE_MAX_CONNECTIONS 6  // Au début du .ino
   delay(1000);
-  Serial.println("Démarrage CaptainBPM v1");
+  Serial.println("CaptainBPM MIDI v2");
   pixels.begin();
   pixels.clear();
   pixels.show();
@@ -197,7 +191,6 @@ void loop() {
     if (running) startSession();
     Serial.printf("BPM+: %d\n", bpm);
   }
-  
   if (pressedEdge(BTN_DOWN, lastBtnDown, lastBtnDownMs, now)) {
     bpm = max(20, bpm - 1);
     sendBPM();
@@ -210,8 +203,7 @@ void loop() {
 
   if (running && now - lastTimecodeSend > 10000) {
     lastTimecodeSend = now;
-    notifyStartTime();
-    Serial.println("Timecode refresh");
+    sendTimecode();
   }
 
   delay(5);

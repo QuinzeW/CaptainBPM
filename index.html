@@ -19,55 +19,63 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.04</h1>
+  <h1>CaptainBPM v1.05</h1>
   <button id="connectBtn">Connexion BLE</button>
+
   <div class="card">
     <div>BPM</div>
-    <div id="bpmValue">--</div>  <!-- CORRIGÉ: Pas de 120 -->
+    <div id="bpmValue">--</div>
     <div id="beat" class="beat"></div>
     <div id="status">Non connecté</div>
   </div>
+
   <div class="card">
     <button id="bpmDown">-</button>
     <button id="bpmUp">+</button>
     <button id="tapSyncBtn">Tap synchro</button>
     <button id="muteBtn">Mute</button>
   </div>
+
   <div class="card">
     <div id="clients">Connectés: --</div>
   </div>
+
   <div class="card">
     <div>Logs événements:</div>
     <div id="logs"></div>
   </div>
 
   <script>
-    // UUIDs exacts v1
-    const SERVICE_UUID = "12345678-1234-1234-1234-1234567890ab";
-    const BPM_UUID = "12345678-1234-1234-1234-1234567890ac";
-    const BEAT_UUID = "12345678-1234-1234-1234-1234567890ad";
-    const START_UUID = "12345678-1234-1234-1234-1234567890ae";
-    const CLIENTS_UUID = "12345678-1234-1234-1234-1234567890b0";
+    // UUID MIDI BLE officiels
+    const SERVICE_UUID = "03B80E5A-EDE8-4B33-A751-6CE34EC4C700";
+    const MIDI_CHAR_UUID = "7772E5DB-3868-4112-A1A9-F2669D106BF3";
 
-    let bpmValueEl = document.getElementById('bpmValue');
-    let statusEl = document.getElementById('status');
-    let beatEl = document.getElementById('beat');
-    let clientsEl = document.getElementById('clients');
-    let logsEl = document.getElementById('logs');
-    let connectBtn = document.getElementById('connectBtn');
-    let bpmUpBtn = document.getElementById('bpmUp');
-    let bpmDownBtn = document.getElementById('bpmDown');
-    let tapSyncBtn = document.getElementById('tapSyncBtn');
-    let muteBtn = document.getElementById('muteBtn');
+    const bpmValueEl = document.getElementById('bpmValue');
+    const statusEl = document.getElementById('status');
+    const beatEl = document.getElementById('beat');
+    const clientsEl = document.getElementById('clients');
+    const logsEl = document.getElementById('logs');
+    const connectBtn = document.getElementById('connectBtn');
+    const bpmUpBtn = document.getElementById('bpmUp');
+    const bpmDownBtn = document.getElementById('bpmDown');
+    const tapSyncBtn = document.getElementById('tapSyncBtn');
+    const muteBtn = document.getElementById('muteBtn');
 
-    let bpm = 0;  // CORRIGÉ: 0 par défaut
-    let running = false;
     let device = null;
+    let server = null;
+    let service = null;
+    let midiChar = null;
+
+    let bpm = 0;
+    let running = false;
     let muted = false;
-    let audioCtx, masterGainNode, beatTimerId;
-    let intervalMs = 500, nextBeatAtMs = 0, tapOriginMs = null;
-    let sessionStartMsMaster = 0, lastSessionSyncLocal = 0;
-    let isPlayingBeat = false;  // ANTI-DOUBLE SON
+    let audioCtx = null;
+    let masterGainNode = null;
+    let beatTimerId = null;
+    let intervalMs = 0;
+    let tapOriginMs = null;
+    let isPlayingBeat = false;
+    let currentBeatSub = null;
 
     function log(msg) {
       const ts = new Date().toLocaleTimeString();
@@ -76,93 +84,147 @@
       entry.textContent = `[${ts}] ${msg}`;
       logsEl.appendChild(entry);
       logsEl.scrollTop = logsEl.scrollHeight;
-      console.log(msg);  // Debug
+      console.log(msg);
     }
 
-    function nowMs() { return performance.now(); }
-    function updateUI() { bpmValueEl.textContent = bpm || '--'; }
-    function setStatus(text) { statusEl.textContent = text; }
-    function updateClients(count) { clientsEl.textContent = `Connectés: ${count}`; }
+    function nowMs() {
+      return performance.now();
+    }
 
-    // Audio CORRIGÉ: anti-double + mute
+    function updateUI() {
+      bpmValueEl.textContent = bpm > 0 ? String(bpm) : '--';
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function updateClients(text) {
+      clientsEl.textContent = text;
+    }
+
+    function recomputeInterval() {
+      intervalMs = bpm > 0 ? (60000 / bpm) : 0;
+    }
+
     function ensureAudio() {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         masterGainNode = audioCtx.createGain();
+        masterGainNode.gain.value = muted ? 0 : 1;
         masterGainNode.connect(audioCtx.destination);
       }
-      if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
     }
+
     function playClick(accent = false) {
-      if (isPlayingBeat) return;  // ANTI-DOUBLE SON
+      if (isPlayingBeat) return;
       isPlayingBeat = true;
       ensureAudio();
+
       const t = audioCtx.currentTime;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
+
       osc.type = 'square';
       osc.frequency.value = accent ? 1200 : 850;
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(accent ? 0.8 : 0.55, t + 0.001);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+
       osc.connect(gain);
       gain.connect(masterGainNode);
       osc.start(t);
       osc.stop(t + 0.05);
+
       setTimeout(() => { isPlayingBeat = false; }, 60);
     }
-    function toggleMute() {
-      muted = !muted;
-      masterGainNode.gain.setValueAtTime(muted ? 0 : 1, audioCtx.currentTime);
-      muteBtn.textContent = muted ? 'Unmute' : 'Mute';
-      log(muted ? 'Son coupé' : 'Son réactivé');
+
+    function pulseVisual() {
+      beatEl.classList.remove('pulsing');
+      void beatEl.offsetWidth;
+      beatEl.classList.add('pulsing');
+      setTimeout(() => beatEl.classList.remove('pulsing'), 180);
     }
 
-    function recomputeInterval() { intervalMs = 60000 / bpm; }
-    function computeNextBeat(refNow) {
-      if (!tapOriginMs) return refNow;
-      const elapsed = refNow - tapOriginMs;
-      return tapOriginMs + (Math.floor(elapsed / intervalMs) + 1) * intervalMs;
-    }
     function scheduleNextBeat() {
-      if (!running) return;
+      if (!running || bpm <= 0 || !tapOriginMs) return;
       const now = nowMs();
-      nextBeatAtMs = computeNextBeat(now);
+      const elapsed = now - tapOriginMs;
+      const nextBeatAtMs = tapOriginMs + (Math.floor(elapsed / intervalMs) + 1) * intervalMs;
       const delay = Math.max(1, nextBeatAtMs - now);
-      const accent = Math.floor((now - tapOriginMs || 0) / intervalMs) % 4 === 0;
+      const accent = (Math.floor(elapsed / intervalMs) % 4) === 0;
+
+      clearTimeout(beatTimerId);
       beatTimerId = setTimeout(() => {
         playClick(accent);
-        beatEl.classList.remove('pulsing');
-        void beatEl.offsetWidth;
-        beatEl.classList.add('pulsing');
-        setTimeout(() => beatEl.classList.remove('pulsing'), 180);
+        pulseVisual();
         scheduleNextBeat();
       }, delay);
     }
+
     function startMetronome() {
+      if (bpm <= 0) return;
       ensureAudio();
       recomputeInterval();
       running = true;
-      tapOriginMs = nowMs();
-      scheduleNextBeat();
+      if (!tapOriginMs) tapOriginMs = nowMs();
       setStatus('En lecture');
-      log('Métro synchronisé');
+      log('Métro démarré');
+      scheduleNextBeat();
     }
+
+    function stopMetronome() {
+      running = false;
+      clearTimeout(beatTimerId);
+      beatTimerId = null;
+      setStatus('Arrêt');
+    }
+
     function syncFromMasterTimecode() {
+      if (!tapOriginMs || bpm <= 0) return;
       const localNow = nowMs();
-      const localDelta = localNow - lastSessionSyncLocal;
-      const sessionNow = sessionStartMsMaster + localDelta;
-      const beatsSince = sessionNow / intervalMs;
-      const nextBeatSession = sessionStartMsMaster + (Math.floor(beatsSince) + 1) * intervalMs;
-      const offset = nextBeatSession - sessionNow;
-      tapOriginMs = localNow + offset - intervalMs;
+      const elapsed = localNow - tapOriginMs;
+      const beatIndex = Math.floor(elapsed / intervalMs);
+      const offset = intervalMs - (elapsed % intervalMs);
       log(`Synchro timecode (offset ~${Math.round(offset)}ms)`);
       if (running) {
         clearTimeout(beatTimerId);
         scheduleNextBeat();
       }
     }
-    // CONNEXION CORRIGÉE
+
+    async function writeBPM(newBpm) {
+      if (!midiChar) throw new Error('Caractéristique MIDI non disponible');
+      const data = new TextEncoder().encode(String(newBpm));
+      await midiChar.writeValueWithoutResponse(data);
+    }
+
+    async function changeBPM(delta) {
+      if (!device?.gatt?.connected) {
+        log('Non connecté');
+        return;
+      }
+      if (!Number.isFinite(bpm) || bpm <= 0) {
+        log('BPM non encore reçu');
+        return;
+      }
+
+      const newBpm = Math.max(20, Math.min(300, bpm + delta));
+
+      try {
+        await writeBPM(newBpm);
+        bpm = newBpm;
+        recomputeInterval();
+        updateUI();
+        log(`BPM ${bpm} envoyé ESP32`);
+      } catch (e) {
+        log(`Erreur write BPM: ${e.message}`);
+      }
+    }
+
     async function connectBLE() {
       try {
         setStatus('Sélection ESP32...');
@@ -170,84 +232,68 @@
           filters: [{ services: [SERVICE_UUID] }],
           optionalServices: [SERVICE_UUID]
         });
+
         log(`Connecté: ${device.name || 'ESP32'}`);
 
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService(SERVICE_UUID);
+        server = await device.gatt.connect();
+        service = await server.getPrimaryService(SERVICE_UUID);
+        midiChar = await service.getCharacteristic(MIDI_CHAR_UUID);
 
-        // BPM READ INITIAL (fix rapidité)
-        const bpmChar = await service.getCharacteristic(BPM_UUID);
-        const initBpmData = await bpmChar.readValue();  // LECTURE
-        bpm = parseInt(new TextDecoder().decode(initBpmData.buffer).trim()) || 120;
-        recomputeInterval();
-        updateUI();
-        log(`BPM ESP32 initial: ${bpm}`);
+        // BPM initial: on lit une fois, puis notifications
+        const initValue = await midiChar.readValue();
+        const initText = new TextDecoder().decode(initValue.buffer).trim();
+        const parsed = parseInt(initText, 10);
 
-        // Clients READ INITIAL
-        const clientsChar = await service.getCharacteristic(CLIENTS_UUID);
-        const initClientsData = await clientsChar.readValue();
-        try {
-          const clientsData = JSON.parse(new TextDecoder().decode(initClientsData.buffer));
-          updateClients(clientsData.clients);
-          log(`Clients init: ${clientsData.clients}`);
-        } catch (e) {
-          log('Clients read erreur');
+        if (Number.isFinite(parsed) && parsed > 0) {
+          bpm = parsed;
+          recomputeInterval();
+          updateUI();
+          log(`BPM ESP32 initial: ${bpm}`);
+        } else {
+          bpm = 0;
+          updateUI();
+          log('BPM initial invalide');
         }
 
-        bpmChar.startNotifications();
-        bpmChar.addEventListener('characteristicvaluechanged', (e) => {
-          const newBpm = parseInt(new TextDecoder().decode(e.target.value.buffer).trim());
-          if (newBpm > 0 && newBpm !== bpm) {
-            bpm = newBpm;
+        midiChar.startNotifications();
+        if (currentBeatSub) {
+          midiChar.removeEventListener('characteristicvaluechanged', currentBeatSub);
+        }
+
+        currentBeatSub = (e) => {
+          const text = new TextDecoder().decode(e.target.value.buffer).trim();
+          const value = parseInt(text, 10);
+          if (Number.isFinite(value) && value > 0 && value !== bpm) {
+            bpm = value;
             recomputeInterval();
             updateUI();
             log(`BPM mis à jour: ${bpm}`);
           }
-        });
-
-        async function changeBPM(delta) {
-          bpmUpBtn.onclick = () => changeBPM(1);
-          bpmDownBtn.onclick = () => changeBPM(-1);
-          if (!device?.gatt?.connected) {
-            log('Non connecté');
-            return;
-          }
-          bpm += delta;
-          bpm = Math.max(20, Math.min(300, bpm));
-          try {
-            const service = await device.gatt.getPrimaryService(SERVICE_UUID);
-            const char = await service.getCharacteristic(BPM_UUID);
-            const encoder = new TextEncoder();
-            const data = encoder.encode(String(bpm));  // ArrayBuffer OK
-            await char.writeValueWithoutResponse(data);  // FIXED
-            recomputeInterval();
-            updateUI();
-            log(`BPM ${bpm} envoyé ESP32`);
-          } catch (e) {
-            log(`Erreur write: ${e.message}`);
-          }
         };
+        midiChar.addEventListener('characteristicvaluechanged', currentBeatSub);
 
-        // Déco
         device.addEventListener('gattserverdisconnected', () => {
           log('Déconnecté');
           setStatus('Déconnecté');
-          running = false;
-          clearTimeout(beatTimerId);
+          stopMetronome();
           bpm = 0;
           updateUI();
         });
 
+        // Ne démarre le métronome que si BPM reçu
+        if (bpm > 0) {
+          startMetronome();
+        }
+
         setStatus('Connecté');
-        log('Prêt - BPM/timecode OK');
-        startMetronome();
+        log('Prêt - BPM reçu');
       } catch (err) {
         log(`Erreur: ${err.message}`);
         setStatus('Erreur');
       }
     }
 
-    // Events
+    // Boutons
     connectBtn.onclick = connectBLE;
     bpmUpBtn.onclick = () => changeBPM(1);
     bpmDownBtn.onclick = () => changeBPM(-1);
@@ -256,9 +302,15 @@
       log('Tap synchro');
       if (running) scheduleNextBeat();
     };
-    muteBtn.onclick = toggleMute;
+    muteBtn.onclick = () => {
+      muted = !muted;
+      if (masterGainNode && audioCtx) {
+        masterGainNode.gain.setValueAtTime(muted ? 0 : 1, audioCtx.currentTime);
+      }
+      muteBtn.textContent = muted ? 'Unmute' : 'Mute';
+      log(muted ? 'Son coupé' : 'Son réactivé');
+    };
 
-    // Init: BPM vide
     updateUI();
     log('Page chargée - connectez BLE');
   </script>
