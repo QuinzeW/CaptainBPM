@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.03</h1>
+  <h1>CaptainBPM v1.031</h1>
   <button id="connectBtn">Connexion BLE</button>
   <div class="card">
     <div>BPM</div>
@@ -245,24 +245,7 @@
           } catch (e) {
             log(`Erreur write: ${e.message}`);
           }
-        }
-
-        // Clients: force read initial
-        const clientsChar = await service.getCharacteristic(CLIENTS_UUID);
-        const initialClients = await clientsChar.readValue();
-        try {
-          const data = JSON.parse(new TextDecoder().decode(initialClients.buffer));
-          updateClients(data.clients);
-          log(`Clients init: ${data.clients}`);
-        } catch {}
-        clientsChar.startNotifications();
-        clientsChar.addEventListener('characteristicvaluechanged', (e) => {
-          try {
-            const data = JSON.parse(new TextDecoder().decode(e.target.value.buffer));
-            updateClients(data.clients);
-            log(`Clients: ${data.clients}`);
-          } catch {}
-        });
+        };
 
         // Déco
         device.addEventListener('gattserverdisconnected', () => {
