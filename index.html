@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.063</h1>
+  <h1>CaptainBPM v1.064</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -93,18 +93,23 @@
     }
 
     function readInitialBpmValue(initData) {
-      const bytes = new Uint8Array(initData.buffer);
+  const bytes = new Uint8Array(initData.buffer);
 
-      if (bytes.length >= 2 && bytes[0] === 0x01) {
-        return bytes[1];
-      }
+  if (bytes.length >= 2) {
+    const type = bytes[0];
+    const value = bytes[1];
 
-      const text = new TextDecoder().decode(initData.buffer).trim();
-      const parsed = parseInt(text, 10);
-      if (Number.isFinite(parsed) && parsed > 0) return parsed;
-
-      return null;
+    if ((type === 0x01 || type === 0x02) && value > 0) {
+      return value;
     }
+  }
+
+  const text = new TextDecoder().decode(initData.buffer).trim();
+  const parsed = parseInt(text, 10);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+
+  return null;
+}
 
     async function subscribeCharacteristic(char, handler) {
       await char.startNotifications();

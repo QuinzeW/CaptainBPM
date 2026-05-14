@@ -56,17 +56,19 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 
 class MidiCallbacks : public NimBLECharacteristicCallbacks {
 public:
-  void onWrite(NimBLECharacteristic* pChar, NimBLEConnInfo& connInfo) override {  // ← 2 params !
-    std::string RxValue = pChar->getValue();
-    if (RxValue.length() >= 2) {
-      uint8_t type = RxValue[0];
-      uint8_t newBpm = RxValue[1];
-      if (type == 0x01 && newBpm >= 20 && newBpm <= 300) {
-        bpm = newBpm;
-        Serial.printf("BPM reçu client %s: %d\n", connInfo.getAddress().toString().c_str(), bpm);
-        sendBPM();
-        if (running) startSession();
-      }
+  void onWrite(NimBLECharacteristic* pChar, NimBLEConnInfo& connInfo) override {
+    std::string rxValue = pChar->getValue();
+
+    if (rxValue.length() < 2) return;
+
+    uint8_t type = (uint8_t)rxValue[0];
+    uint8_t value = (uint8_t)rxValue[1];
+
+    if (type == 0x01 && value >= 20 && value <= 300) {
+      bpm = value;
+      Serial.printf("BPM reçu client %s: %d\n", connInfo.getAddress().toString().c_str(), bpm);
+      sendBPM();
+      if (running) startSession();
     }
   }
 };
@@ -81,22 +83,27 @@ void sendBPM() {
 
 void sendBeat() {
   if (!midiChar) return;
-  uint8_t packet[5] = {0x02, beatCount & 0xFF, (beatCount >> 8) & 0xFF, 0, 0};  // Type 2 = Beat
-  midiChar->setValue(packet, 5);
+  uint8_t packet[2] = {0x02, (uint8_t)(beatCount & 0xFF)};
+  midiChar->setValue(packet, 2);
   midiChar->notify();
 }
 
 void sendTimecode() {
   if (!midiChar) return;
-  uint8_t packet[7] = {0x03, sessionStartMs & 0xFF, (sessionStartMs >> 8) & 0xFF,
-                       (sessionStartMs >> 16) & 0xFF, (sessionStartMs >> 24) & 0xFF, 0, 0};  // Type 3
-  midiChar->setValue(packet, 7);
+  uint8_t packet[5] = {
+    0x03,
+    (uint8_t)(sessionStartMs & 0xFF),
+    (uint8_t)((sessionStartMs >> 8) & 0xFF),
+    (uint8_t)((sessionStartMs >> 16) & 0xFF),
+    (uint8_t)((sessionStartMs >> 24) & 0xFF)
+  };
+  midiChar->setValue(packet, 5);
   midiChar->notify();
 }
 
 void sendClients() {
   if (!midiChar) return;
-  uint8_t packet[2] = {0x04, (uint8_t)clientCount};  // Type 4 = Clients
+  uint8_t packet[2] = {0x04, (uint8_t)clientCount};
   midiChar->setValue(packet, 2);
   midiChar->notify();
 }
@@ -170,17 +177,17 @@ void setupBLE() {
 
   midiChar = service->createCharacteristic(
     MIDI_IO_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
-    midiChar->setValue("120");  // BPM initial pour read
-  
   midiChar->setCallbacks(new MidiCallbacks());
-  midiChar->setValue(String(bpm).c_str());
 
   service->start();
+
+  sendBPM();
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(MIDI_SERVICE_UUID);
   adv->enableScanResponse(true);
   NimBLEDevice::startAdvertising();
+
   Serial.println("MIDI BLE prêt");
 }
 
