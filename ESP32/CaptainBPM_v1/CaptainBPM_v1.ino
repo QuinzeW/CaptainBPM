@@ -77,34 +77,33 @@ public:
 void sendBPM() {
   if (!midiChar) return;
   uint8_t packet[2] = {0x01, (uint8_t)bpm};
-  midiChar->setValue(packet, 2);
+  midiChar->setValue(packet, sizeof(packet));
   midiChar->notify();
 }
 
 void sendBeat() {
   if (!midiChar) return;
   uint8_t packet[2] = {0x02, (uint8_t)(beatCount & 0xFF)};
-  midiChar->setValue(packet, 2);
+  midiChar->setValue(packet, sizeof(packet));
   midiChar->notify();
 }
 
 void sendTimecode() {
   if (!midiChar) return;
-  uint8_t packet[5] = {
-    0x03,
+  uint8_t packet[5] = {0x03,
     (uint8_t)(sessionStartMs & 0xFF),
     (uint8_t)((sessionStartMs >> 8) & 0xFF),
     (uint8_t)((sessionStartMs >> 16) & 0xFF),
     (uint8_t)((sessionStartMs >> 24) & 0xFF)
   };
-  midiChar->setValue(packet, 5);
+  midiChar->setValue(packet, sizeof(packet));
   midiChar->notify();
 }
 
 void sendClients() {
   if (!midiChar) return;
   uint8_t packet[2] = {0x04, (uint8_t)clientCount};
-  midiChar->setValue(packet, 2);
+  midiChar->setValue(packet, sizeof(packet));
   midiChar->notify();
 }
 
