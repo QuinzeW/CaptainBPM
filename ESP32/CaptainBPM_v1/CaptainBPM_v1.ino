@@ -74,8 +74,8 @@ public:
 // Envoi MIDI-like: [Type][BPM/Beat/Timecode][Valeur]
 void sendBPM() {
   if (!midiChar) return;
-  uint8_t packet[4] = {0x01, (uint8_t)bpm, 0, 0};  // Type 1 = BPM
-  midiChar->setValue(packet, 4);
+  uint8_t packet[2] = {0x01, (uint8_t)bpm};
+  midiChar->setValue(packet, 2);
   midiChar->notify();
 }
 
