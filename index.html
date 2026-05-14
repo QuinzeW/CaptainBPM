@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.061</h1>
+  <h1>CaptainBPM v1.062</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -92,12 +92,11 @@
       return null;
     }
 
-    async function readInitialBpm(bpmChar) {
-      const value = await bpmChar.readValue();
-        log(`Raw BPM data: [${Array.from(initData.buffer)}]`);  // Debug bytes
-        log(`Raw BPM text: "${new TextDecoder().decode(initData.buffer)}"`);  // Debug texte
-      const text = new TextDecoder().decode(value.buffer).trim();
-      return decodeGattValue(value);
+    async function readInitialBpm(char) {
+      const initData = await char.readValue();
+      const text = new TextDecoder().decode(initData.buffer).trim();
+      const parsed = parseInt(text, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     }
 
     async function subscribeCharacteristic(char, handler) {
@@ -266,14 +265,17 @@ async function connectBLE() {
 
     server = await device.gatt.connect();
     service = await server.getPrimaryService(SERVICE_UUID);
-
     bpmChar = await service.getCharacteristic(MIDI_IO_UUID);
-    // clientsChar = await service.getCharacteristic(CLIENTS_UUID);
-    // beatChar = await service.getCharacteristic(BEAT_UUID);
-    // startChar = await service.getCharacteristic(START_UUID);
+
+    const initData = await bpmChar.readValue();
+    log(`Raw BPM data: [${Array.from(new Uint8Array(initData.buffer))}]`);
+    log(`Raw BPM text: "${new TextDecoder().decode(initData.buffer)}"`);
+
+    // const text = new TextDecoder().decode(initData.buffer).trim();
+    // const parsed = parseInt(text, 10);
 
     const initialBpm = await readInitialBpm(bpmChar);
-    if (Number.isFinite(initialBpm)) {
+    if (initialBpm !== null) {
       bpm = initialBpm;
       recomputeInterval();
       updateUI();
@@ -283,50 +285,6 @@ async function connectBLE() {
       updateUI();
       log('BPM initial invalide');
     }
-
-    // const initialClientsValue = await clientsChar.readValue();
-    // try {
-    //   const data = JSON.parse(new TextDecoder().decode(initialClientsValue.buffer));
-    //   updateClients(data.clients);
-    //   log(`Clients init: ${data.clients}`);
-    // } catch {
-    //   log('Clients init invalide');
-    // }
-
-    // await subscribeCharacteristic(bpmChar, (e) => {
-    //   const newBpm = decodeGattValue(e.target.value);
-    //   if (Number.isFinite(newBpm) && newBpm > 0 && newBpm !== bpm) {
-    //     bpm = newBpm;
-    //     recomputeInterval();
-    //     updateUI();
-    //     log(`BPM mis à jour: ${bpm}`);
-    //   }
-    // });
-
-    // await subscribeCharacteristic(clientsChar, (e) => {
-    //   try {
-    //     const data = JSON.parse(new TextDecoder().decode(e.target.value.buffer));
-    //     if (Number.isFinite(data.clients)) {
-    //       updateClients(data.clients);
-    //       log(`Clients: ${data.clients}`);
-    //     }
-    //   } catch {}
-    // });
-
-    // await subscribeCharacteristic(startChar, (e) => {
-    //   const text = new TextDecoder().decode(e.target.value.buffer).trim();
-    //   const incomingStart = parseInt(text, 10);
-    //   if (Number.isFinite(incomingStart)) {
-    //     sessionStartMsMaster = incomingStart;
-    //     lastSessionSyncLocal = nowMs();
-    //     if (!running && bpm > 0) startMetronome();
-    //     log('Timecode reçu');
-    //   }
-    // });
-
-    // await subscribeCharacteristic(beatChar, () => {
-    //   // utile pour debug ou resync
-    // });
 
     device.addEventListener('gattserverdisconnected', () => {
       log('Déconnecté');
