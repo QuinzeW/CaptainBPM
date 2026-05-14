@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.058</h1>
+  <h1>CaptainBPM v1.059</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -290,15 +290,15 @@ async function connectBLE() {
     //   log('Clients init invalide');
     // }
 
-    await subscribeCharacteristic(bpmChar, (e) => {
-      const newBpm = decodeGattValue(e.target.value);
-      if (Number.isFinite(newBpm) && newBpm > 0 && newBpm !== bpm) {
-        bpm = newBpm;
-        recomputeInterval();
-        updateUI();
-        log(`BPM mis à jour: ${bpm}`);
-      }
-    });
+    // await subscribeCharacteristic(bpmChar, (e) => {
+    //   const newBpm = decodeGattValue(e.target.value);
+    //   if (Number.isFinite(newBpm) && newBpm > 0 && newBpm !== bpm) {
+    //     bpm = newBpm;
+    //     recomputeInterval();
+    //     updateUI();
+    //     log(`BPM mis à jour: ${bpm}`);
+    //   }
+    // });
 
     // await subscribeCharacteristic(clientsChar, (e) => {
     //   try {
@@ -310,20 +310,20 @@ async function connectBLE() {
     //   } catch {}
     // });
 
-    await subscribeCharacteristic(startChar, (e) => {
-      const text = new TextDecoder().decode(e.target.value.buffer).trim();
-      const incomingStart = parseInt(text, 10);
-      if (Number.isFinite(incomingStart)) {
-        sessionStartMsMaster = incomingStart;
-        lastSessionSyncLocal = nowMs();
-        if (!running && bpm > 0) startMetronome();
-        log('Timecode reçu');
-      }
-    });
+    // await subscribeCharacteristic(startChar, (e) => {
+    //   const text = new TextDecoder().decode(e.target.value.buffer).trim();
+    //   const incomingStart = parseInt(text, 10);
+    //   if (Number.isFinite(incomingStart)) {
+    //     sessionStartMsMaster = incomingStart;
+    //     lastSessionSyncLocal = nowMs();
+    //     if (!running && bpm > 0) startMetronome();
+    //     log('Timecode reçu');
+    //   }
+    // });
 
-    await subscribeCharacteristic(beatChar, () => {
-      // utile pour debug ou resync
-    });
+    // await subscribeCharacteristic(beatChar, () => {
+    //   // utile pour debug ou resync
+    // });
 
     device.addEventListener('gattserverdisconnected', () => {
       log('Déconnecté');
