@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.057</h1>
+  <h1>CaptainBPM v1.058</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -300,15 +300,15 @@ async function connectBLE() {
       }
     });
 
-    await subscribeCharacteristic(clientsChar, (e) => {
-      try {
-        const data = JSON.parse(new TextDecoder().decode(e.target.value.buffer));
-        if (Number.isFinite(data.clients)) {
-          updateClients(data.clients);
-          log(`Clients: ${data.clients}`);
-        }
-      } catch {}
-    });
+    // await subscribeCharacteristic(clientsChar, (e) => {
+    //   try {
+    //     const data = JSON.parse(new TextDecoder().decode(e.target.value.buffer));
+    //     if (Number.isFinite(data.clients)) {
+    //       updateClients(data.clients);
+    //       log(`Clients: ${data.clients}`);
+    //     }
+    //   } catch {}
+    // });
 
     await subscribeCharacteristic(startChar, (e) => {
       const text = new TextDecoder().decode(e.target.value.buffer).trim();
