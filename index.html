@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.054</h1>
+  <h1>CaptainBPM v1.055</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -264,7 +264,7 @@ async function connectBLE() {
     server = await device.gatt.connect();
     service = await server.getPrimaryService(SERVICE_UUID);
 
-    // bpmChar = await service.getCharacteristic(BPM_UUID);
+    bpmChar = await service.getCharacteristic(MIDI_IO_UUID);
     // clientsChar = await service.getCharacteristic(CLIENTS_UUID);
     // beatChar = await service.getCharacteristic(BEAT_UUID);
     // startChar = await service.getCharacteristic(START_UUID);
