@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.052</h1>
+  <h1>CaptainBPM v1.053</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -76,6 +76,31 @@
     let tapOriginMs = null;
     let isPlayingBeat = false;
     let currentBeatSub = null;
+
+    function decodeGattValue(value) {
+      const text = new TextDecoder().decode(value.buffer).trim();
+
+      const asText = parseInt(text, 10);
+      if (Number.isFinite(asText) && asText > 0) return asText;
+
+      if (value.byteLength >= 2) {
+        const type = value.getUint8(0);
+        const bpmValue = value.getUint8(1);
+        if (type === 0x01 && bpmValue > 0) return bpmValue;
+      }
+
+      return null;
+    }
+
+    async function readInitialBpm(bpmChar) {
+      const value = await bpmChar.readValue();
+      return decodeGattValue(value);
+    }
+
+    async function subscribeCharacteristic(char, handler) {
+      await char.startNotifications();
+      char.addEventListener('characteristicvaluechanged', handler);
+    }
 
     function log(msg) {
       const ts = new Date().toLocaleTimeString();
@@ -225,74 +250,103 @@
       }
     }
 
-    async function connectBLE() {
-      try {
-        setStatus('Sélection ESP32...');
-        device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [SERVICE_UUID] }],
-          optionalServices: [SERVICE_UUID]
-        });
+async function connectBLE() {
+  try {
+    setStatus('Sélection ESP32...');
 
-        log(`Connecté: ${device.name || 'ESP32'}`);
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE_UUID] }],
+      optionalServices: [SERVICE_UUID]
+    });
 
-        server = await device.gatt.connect();
-        service = await server.getPrimaryService(SERVICE_UUID);
-        midiChar = await service.getCharacteristic(MIDI_CHAR_UUID);
+    log(`Connecté: ${device.name || 'ESP32'}`);
 
-        // BPM : read initial + notify
-        const bpmChar = await service.getCharacteristic(BPM_UUID);
+    server = await device.gatt.connect();
+    service = await server.getPrimaryService(SERVICE_UUID);
 
-        // Read initial (string ou binaire)
-        const initData;
+    bpmChar = await service.getCharacteristic(BPM_UUID);
+    clientsChar = await service.getCharacteristic(CLIENTS_UUID);
+    beatChar = await service.getCharacteristic(BEAT_UUID);
+    startChar = await service.getCharacteristic(START_UUID);
 
-        if (Number.isFinite(parsed) && parsed > 0) {
-          bpm = parsed;
-          recomputeInterval();
-          updateUI();
-          log(`BPM ESP32 initial: ${bpm}`);
-        } else {
-          bpm = 0;
-          updateUI();
-          log('BPM initial invalide');
-        }
-
-        midiChar.startNotifications();
-        if (currentBeatSub) {
-          midiChar.removeEventListener('characteristicvaluechanged', currentBeatSub);
-        }
-
-        currentBeatSub = (e) => {
-          const text = new TextDecoder().decode(e.target.value.buffer).trim();
-          const value = parseInt(text, 10);
-          if (Number.isFinite(value) && value > 0 && value !== bpm) {
-            bpm = value;
-            recomputeInterval();
-            updateUI();
-            log(`BPM mis à jour: ${bpm}`);
-          }
-        };
-        midiChar.addEventListener('characteristicvaluechanged', currentBeatSub);
-
-        device.addEventListener('gattserverdisconnected', () => {
-          log('Déconnecté');
-          setStatus('Déconnecté');
-          stopMetronome();
-          bpm = 0;
-          updateUI();
-        });
-
-        // Ne démarre le métronome que si BPM reçu
-        if (bpm > 0) {
-          startMetronome();
-        }
-
-        setStatus('Connecté');
-        log('Prêt - BPM reçu');
-      } catch (err) {
-        log(`Erreur: ${err.message}`);
-        setStatus('Erreur');
-      }
+    const initialBpm = await readInitialBpm(bpmChar);
+    if (Number.isFinite(initialBpm)) {
+      bpm = initialBpm;
+      recomputeInterval();
+      updateUI();
+      log(`BPM ESP32 initial: ${bpm}`);
+    } else {
+      bpm = 0;
+      updateUI();
+      log('BPM initial invalide');
     }
+
+    const initialClientsValue = await clientsChar.readValue();
+    try {
+      const data = JSON.parse(new TextDecoder().decode(initialClientsValue.buffer));
+      updateClients(data.clients);
+      log(`Clients init: ${data.clients}`);
+    } catch {
+      log('Clients init invalide');
+    }
+
+    await subscribeCharacteristic(bpmChar, (e) => {
+      const newBpm = decodeGattValue(e.target.value);
+      if (Number.isFinite(newBpm) && newBpm > 0 && newBpm !== bpm) {
+        bpm = newBpm;
+        recomputeInterval();
+        updateUI();
+        log(`BPM mis à jour: ${bpm}`);
+      }
+    });
+
+    await subscribeCharacteristic(clientsChar, (e) => {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(e.target.value.buffer));
+        if (Number.isFinite(data.clients)) {
+          updateClients(data.clients);
+          log(`Clients: ${data.clients}`);
+        }
+      } catch {}
+    });
+
+    await subscribeCharacteristic(startChar, (e) => {
+      const text = new TextDecoder().decode(e.target.value.buffer).trim();
+      const incomingStart = parseInt(text, 10);
+      if (Number.isFinite(incomingStart)) {
+        sessionStartMsMaster = incomingStart;
+        lastSessionSyncLocal = nowMs();
+        if (!running && bpm > 0) startMetronome();
+        log('Timecode reçu');
+      }
+    });
+
+    await subscribeCharacteristic(beatChar, () => {
+      // utile pour debug ou resync
+    });
+
+    device.addEventListener('gattserverdisconnected', () => {
+      log('Déconnecté');
+      setStatus('Déconnecté');
+      running = false;
+      clearTimeout(beatTimerId);
+      beatTimerId = null;
+      bpm = 0;
+      updateUI();
+    });
+
+    setStatus('Connecté');
+
+    if (bpm > 0) {
+      startMetronome();
+    }
+
+    log('Prêt - BPM/timecode OK');
+  } catch (err) {
+    log(`Erreur: ${err.message}`);
+    setStatus('Erreur');
+  }
+}
 
     // Boutons
     connectBtn.onclick = connectBLE;
