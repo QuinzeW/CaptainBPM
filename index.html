@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.059</h1>
+  <h1>CaptainBPM v1.06</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -94,7 +94,8 @@
 
     async function readInitialBpm(bpmChar) {
       const value = await bpmChar.readValue();
-      return decodeGattValue(value);
+      const text = new TextDecoder().decode(value.buffer).trim();
+      // return decodeGattValue(value);
     }
 
     async function subscribeCharacteristic(char, handler) {
