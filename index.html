@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.056</h1>
+  <h1>CaptainBPM v1.057</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -281,14 +281,14 @@ async function connectBLE() {
       log('BPM initial invalide');
     }
 
-    const initialClientsValue = await clientsChar.readValue();
-    try {
-      const data = JSON.parse(new TextDecoder().decode(initialClientsValue.buffer));
-      updateClients(data.clients);
-      log(`Clients init: ${data.clients}`);
-    } catch {
-      log('Clients init invalide');
-    }
+    // const initialClientsValue = await clientsChar.readValue();
+    // try {
+    //   const data = JSON.parse(new TextDecoder().decode(initialClientsValue.buffer));
+    //   updateClients(data.clients);
+    //   log(`Clients init: ${data.clients}`);
+    // } catch {
+    //   log('Clients init invalide');
+    // }
 
     await subscribeCharacteristic(bpmChar, (e) => {
       const newBpm = decodeGattValue(e.target.value);
