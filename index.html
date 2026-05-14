@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.051</h1>
+  <h1>CaptainBPM v1.052</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -239,10 +239,11 @@
         service = await server.getPrimaryService(SERVICE_UUID);
         midiChar = await service.getCharacteristic(MIDI_CHAR_UUID);
 
-        // BPM initial: on lit une fois, puis notifications
-        const initValue = await midiChar.readValue();
-        const initText = new TextDecoder().decode(initValue.buffer).trim();
-        const parsed = parseInt(initText, 10);
+        // BPM : read initial + notify
+        const bpmChar = await service.getCharacteristic(BPM_UUID);
+
+        // Read initial (string ou binaire)
+        const initData;
 
         if (Number.isFinite(parsed) && parsed > 0) {
           bpm = parsed;

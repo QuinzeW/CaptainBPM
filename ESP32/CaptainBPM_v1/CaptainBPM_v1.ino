@@ -57,10 +57,10 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 class MidiCallbacks : public NimBLECharacteristicCallbacks {
 public:
   void onWrite(NimBLECharacteristic* pChar, NimBLEConnInfo& connInfo) override {  // ← 2 params !
-    std::string rxValue = pChar->getValue();
-    if (rxValue.length() >= 2) {
-      uint8_t type = rxValue[0];
-      uint8_t newBpm = rxValue[1];
+    std::string RxValue = pChar->getValue();
+    if (RxValue.length() >= 2) {
+      uint8_t type = RxValue[0];
+      uint8_t newBpm = RxValue[1];
       if (type == 0x01 && newBpm >= 20 && newBpm <= 300) {
         bpm = newBpm;
         Serial.printf("BPM reçu client %s: %d\n", connInfo.getAddress().toString().c_str(), bpm);
@@ -170,8 +170,10 @@ void setupBLE() {
 
   midiChar = service->createCharacteristic(
     MIDI_IO_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+    midiChar->setValue("120");  // BPM initial pour read
   
   midiChar->setCallbacks(new MidiCallbacks());
+  midiChar->setValue(String(bpm).c_str());
 
   service->start();
 
