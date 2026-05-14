@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.06</h1>
+  <h1>CaptainBPM v1.061</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -94,8 +94,10 @@
 
     async function readInitialBpm(bpmChar) {
       const value = await bpmChar.readValue();
+        log(`Raw BPM data: [${Array.from(initData.buffer)}]`);  // Debug bytes
+        log(`Raw BPM text: "${new TextDecoder().decode(initData.buffer)}"`);  // Debug texte
       const text = new TextDecoder().decode(value.buffer).trim();
-      // return decodeGattValue(value);
+      return decodeGattValue(value);
     }
 
     async function subscribeCharacteristic(char, handler) {
