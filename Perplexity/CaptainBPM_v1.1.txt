@@ -64,22 +64,22 @@ void sendClients() {
   midiChar->notify();
 }
 
-void sendInitialState() {
+void sendAllData() {
   sendClients();
   sendBPM();
   if (running) {
     sendTimecode();
+    sendBeat();
   }
 }
 
 void pulseOn() {
-  bool accent = (beatCount % 4) == 0;
-  pixels.setPixelColor(0, accent ? pixels.Color(20, 14, 20) : pixels.Color(12, 10, 14));
+  pixels.setPixelColor(0, pixels.Color(12, 10, 14));
   pixels.show();
   pulseActive = true;
   pulseOffAtMs = millis() + pulseDurationMs;
-  sendBeat();
   beatCount++;
+  sendBeat();
 }
 
 void updatePulse(uint32_t now) {
@@ -106,8 +106,7 @@ void startSession() {
   beatCount = 0;
   sessionStartMs = millis();
   lastStepMs = millis();
-  lastTimecodeSend = 0;
-  sendInitialState();
+  sendAllData();
 }
 
 void updateMetronome(uint32_t now) {
@@ -120,25 +119,21 @@ void updateMetronome(uint32_t now) {
 }
 
 class ServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
+  void onConnect(NimBLEServer* pServer, NimBLEConnInfo connInfo) override {
     clientCount++;
-    sendClients();
-    sendBPM();
-    if (running) {
-      sendTimecode();
-    }
+    sendAllData();
     NimBLEDevice::startAdvertising();
   }
 
-  void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
+  void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo connInfo, int reason) override {
     if (clientCount > 0) clientCount--;
-    sendClients();
+    sendAllData();
     NimBLEDevice::startAdvertising();
   }
 };
 
 class MidiCallbacks : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* pChar, NimBLEConnInfo& connInfo) override {
+  void onWrite(NimBLECharacteristic* pChar, NimBLEConnInfo connInfo) override {
     std::string rxValue = pChar->getValue();
     if (rxValue.length() < 2) return;
 
@@ -146,12 +141,9 @@ class MidiCallbacks : public NimBLECharacteristicCallbacks {
     uint8_t value = (uint8_t)rxValue[1];
 
     if (type == 0x01 && value >= 20 && value <= 300) {
-     bpm = value;
-     sendBPM();
-     if (running) {
-      lastStepMs = millis();
-      sendTimecode();
-     }
+      bpm = value;
+      sendBPM();
+      if (running) startSession();
     }
   }
 };
@@ -201,19 +193,13 @@ void loop() {
   if (pressedEdge(BTN_UP, lastBtnUp, lastBtnUpMs, now)) {
     bpm = min(300, bpm + 1);
     sendBPM();
-    if (running) {
-      lastStepMs = now;
-      sendTimecode();
-    }
+    if (running) startSession();
   }
 
   if (pressedEdge(BTN_DOWN, lastBtnDown, lastBtnDownMs, now)) {
     bpm = max(20, bpm - 1);
     sendBPM();
-    if (running) {
-      lastStepMs = now;
-      sendTimecode();
-    }
+    if (running) startSession();
   }
 
   updateMetronome(now);

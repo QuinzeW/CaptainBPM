@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h1>CaptainBPM v1.065</h1>
+  <h1>CaptainBPM v1.073</h1>
   <button id="connectBtn">Connexion BLE</button>
 
   <div class="card">
@@ -75,37 +75,6 @@
     let intervalMs = 0;
     let tapOriginMs = null;
     let isPlayingBeat = false;
-    let currentBeatSub = null;
-
-    function decodeGattValue(value) {
-      const text = new TextDecoder().decode(value.buffer).trim();
-
-      const asText = parseInt(text, 10);
-      if (Number.isFinite(asText) && asText > 0) return asText;
-
-      if (value.byteLength >= 2) {
-        const type = value.getUint8(0);
-        const bpmValue = value.getUint8(1);
-        if (type === 0x01 && bpmValue > 0) return bpmValue;
-      }
-
-      return null;
-    }
-
-    function readInitialBpmValue(initData) {
-      const bytes = new Uint8Array(initData.buffer);
-
-      if (bytes.length >= 2 && bytes[0] === 0x01) {
-        return bytes[1];
-      }
-
-      return null;
-    }
-
-    async function subscribeCharacteristic(char, handler) {
-      await char.startNotifications();
-      char.addEventListener('characteristicvaluechanged', handler);
-    }
 
     function log(msg) {
       const ts = new Date().toLocaleTimeString();
@@ -115,10 +84,6 @@
       logsEl.appendChild(entry);
       logsEl.scrollTop = logsEl.scrollHeight;
       console.log(msg);
-    }
-
-    function nowMs() {
-      return performance.now();
     }
 
     function updateUI() {
@@ -144,9 +109,7 @@
         masterGainNode.gain.value = muted ? 0 : 1;
         masterGainNode.connect(audioCtx.destination);
       }
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
+      if (audioCtx.state === "suspended") audioCtx.resume();
     }
 
     function playClick(accent = false) {
@@ -181,7 +144,7 @@
 
     function scheduleNextBeat() {
       if (!running || bpm <= 0 || !tapOriginMs) return;
-      const now = nowMs();
+      const now = performance.now();
       const elapsed = now - tapOriginMs;
       const nextBeatAtMs = tapOriginMs + (Math.floor(elapsed / intervalMs) + 1) * intervalMs;
       const delay = Math.max(1, nextBeatAtMs - now);
@@ -200,7 +163,7 @@
       ensureAudio();
       recomputeInterval();
       running = true;
-      if (!tapOriginMs) tapOriginMs = nowMs();
+      if (!tapOriginMs) tapOriginMs = performance.now();
       setStatus('En lecture');
       log('Métro démarré');
       scheduleNextBeat();
@@ -213,47 +176,28 @@
       setStatus('Arrêt');
     }
 
-    function syncFromMasterTimecode() {
-      if (!tapOriginMs || bpm <= 0) return;
-      const localNow = nowMs();
-      const elapsed = localNow - tapOriginMs;
-      const beatIndex = Math.floor(elapsed / intervalMs);
-      const offset = intervalMs - (elapsed % intervalMs);
-      log(`Synchro timecode (offset ~${Math.round(offset)}ms)`);
-      if (running) {
-        clearTimeout(beatTimerId);
-        scheduleNextBeat();
-      }
-    }
+function handleMidiPacket(dataView) {
+  const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+  if (bytes.length < 2) return;
 
-    async function writeBPM(newBpm) {
-      if (!midiChar) throw new Error('Caractéristique MIDI non disponible');
-      const data = new TextEncoder().encode(String(newBpm));
-      await midiChar.writeValueWithoutResponse(data);
-    }
+  const type = bytes[0];
+  const value = bytes[1];
 
-    async function changeBPM(delta) {
-      if (!device?.gatt?.connected) {
-        log('Non connecté');
-        return;
-      }
-      if (!Number.isFinite(bpm) || bpm <= 0) {
-        log('BPM non encore reçu');
-        return;
-      }
-
-      const newBpm = Math.max(20, Math.min(300, bpm + delta));
-
-      try {
-        await writeBPM(newBpm);
-        bpm = newBpm;
-        recomputeInterval();
-        updateUI();
-        log(`BPM ${bpm} envoyé ESP32`);
-      } catch (e) {
-        log(`Erreur write BPM: ${e.message}`);
-      }
-    }
+  if (type === 0x01) {
+    bpm = value;
+    recomputeInterval();
+    updateUI();
+    log(`BPM reçu: ${bpm}`);
+    tapOriginMs = performance.now();
+    startMetronome();
+  } else if (type === 0x02) {
+    log(`Beat reçu: ${value}`);
+  } else if (type === 0x03) {
+    log(`Timecode reçu: ${Array.from(bytes.slice(1)).join(",")}`);
+  } else if (type === 0x04) {
+    updateClients(`Connectés: ${value}`);
+  }
+}
 
 async function connectBLE() {
   try {
@@ -264,72 +208,79 @@ async function connectBLE() {
       optionalServices: [SERVICE_UUID]
     });
 
-    log(`Connecté: ${device.name || 'ESP32'}`);
+    log(`Connecté: ${device.name}`);
 
     server = await device.gatt.connect();
     service = await server.getPrimaryService(SERVICE_UUID);
-    bpmChar = await service.getCharacteristic(MIDI_IO_UUID);
-
-    const initData = await bpmChar.readValue();
-    log(`Raw BPM data: [${Array.from(new Uint8Array(initData.buffer))}]`);
-    log(`Raw BPM text: "${new TextDecoder().decode(initData.buffer)}"`);
-
-    const initialBpm = readInitialBpmValue(initData);
-
-    if (initialBpm !== null) {
-      bpm = initialBpm;
-      recomputeInterval();
-      updateUI();
-      log(`BPM ESP32 initial: ${bpm}`);
-    } else {
-      bpm = 0;
-      updateUI();
-      log('BPM initial invalide');
+    midiChar = await service.getCharacteristic(MIDI_IO_UUID);
+    if (!midiChar) {
+      throw new Error("Caractéristique MIDI introuvable");
     }
 
-    device.addEventListener('gattserverdisconnected', () => {
-      log('Déconnecté');
-      setStatus('Déconnecté');
-      running = false;
-      clearTimeout(beatTimerId);
-      beatTimerId = null;
-      bpm = 0;
-      updateUI();
-    });
+    const initData = await midiChar.readValue();
+    const initBytes = new Uint8Array(initData.buffer, initData.byteOffset, initData.byteLength);
+    log(`Raw BPM data: [${Array.from(new Uint8Array(initData.buffer)).join(",")}]`);
 
-    setStatus('Connecté');
-
+    handleMidiPacket(initData);
+    ensureAudio();
     if (bpm > 0) {
+      tapOriginMs = performance.now();
       startMetronome();
     }
 
-    log('Prêt - BPM/timecode OK');
+    await midiChar.startNotifications();
+    midiChar.addEventListener("characteristicvaluechanged", (event) => {
+      handleMidiPacket(event.target.value);
+    });
+
+    device.addEventListener("gattserverdisconnected", () => {
+      log("Déconnecté");
+      stopMetronome();
+      bpm = 0;
+      updateUI();
+      setStatus("Non connecté");
+    });
+
+    setStatus("Prêt");
   } catch (err) {
     log(`Erreur: ${err.message}`);
-    setStatus('Erreur');
+    setStatus("Erreur");
   }
 }
 
-    // Boutons
-    connectBtn.onclick = connectBLE;
-    bpmUpBtn.onclick = () => changeBPM(1);
-    bpmDownBtn.onclick = () => changeBPM(-1);
-    tapSyncBtn.onclick = () => {
-      tapOriginMs = nowMs();
-      log('Tap synchro');
-      if (running) scheduleNextBeat();
-    };
-    muteBtn.onclick = () => {
-      muted = !muted;
-      if (masterGainNode && audioCtx) {
-        masterGainNode.gain.setValueAtTime(muted ? 0 : 1, audioCtx.currentTime);
-      }
-      muteBtn.textContent = muted ? 'Unmute' : 'Mute';
-      log(muted ? 'Son coupé' : 'Son réactivé');
-    };
+connectBtn.onclick = connectBLE;
 
-    updateUI();
-    log('Page chargée - connectez BLE');
-  </script>
+connectBtn.addEventListener('click', async () => {
+  ensureAudio();
+  await connectBLE();
+});
+
+bpmUpBtn.onclick = async () => {
+  if (!midiChar) return;
+  const value = Math.min(300, bpm + 1);
+  await midiChar.writeValueWithoutResponse(new Uint8Array([0x01, value]));
+};
+bpmDownBtn.onclick = async () => {
+  if (!midiChar) return;
+  const value = Math.max(20, bpm - 1);
+  await midiChar.writeValueWithoutResponse(new Uint8Array([0x01, value]));
+};
+tapSyncBtn.onclick = () => {
+  tapOriginMs = performance.now();
+  log("Tap synchro");
+  if (running) scheduleNextBeat();
+};
+muteBtn.onclick = () => {
+  muted = !muted;
+  if (masterGainNode && audioCtx) {
+    masterGainNode.gain.setValueAtTime(muted ? 0 : 1, audioCtx.currentTime);
+  }
+  muteBtn.textContent = muted ? "Unmute" : "Mute";
+  log(muted ? "Son coupé" : "Son réactivé");
+};
+
+updateUI();
+log("Page chargée - connectez BLE");
+</script>
 </body>
 </html>
